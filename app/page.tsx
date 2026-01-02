@@ -1023,6 +1023,55 @@ export default function Home() {
     alert("✅ Manual overrides cleared");
   };
 
+  const [tokenRefreshing, setTokenRefreshing] = useState(false);
+  const [autoTokenStatus, setAutoTokenStatus] = useState<string | null>(null);
+
+  const refreshStockXToken = async () => {
+    if (!confirm("🤖 Trigger automated token refresh?\n\nThis will:\n- Launch headless browser\n- Auto-login to StockX\n- Capture fresh bearer token\n- Store in database\n\nTakes ~30 seconds. Continue?")) {
+      return;
+    }
+
+    setTokenRefreshing(true);
+    try {
+      const res = await fetch("/api/auth/refresh-stockx-token", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ cronSecret: prompt("Enter CRON_SECRET (from env vars):") }),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        throw new Error(data.details || "Token refresh failed");
+      }
+
+      alert(`✅ Token Refreshed!\n\nPreview: ${data.tokenPreview}\nExpires: ${data.expiresIn}\n\nYou can now use the app without manually pasting a token!`);
+      setAutoTokenStatus("Active - Auto-refreshes every 10 hours");
+    } catch (error: any) {
+      alert(`❌ Token refresh failed:\n\n${error.message}\n\nMake sure STOCKX_EMAIL and STOCKX_PASSWORD are set in environment variables.`);
+    } finally {
+      setTokenRefreshing(false);
+    }
+  };
+
+  const checkAutoTokenStatus = async () => {
+    try {
+      const res = await fetch("/api/auth/refresh-stockx-token");
+      if (res.ok) {
+        const data = await res.json();
+        setAutoTokenStatus(data.isExpired ? "Expired - Will refresh soon" : `Active until ${new Date(data.expiresAt).toLocaleString()}`);
+      } else {
+        setAutoTokenStatus("No auto-token found");
+      }
+    } catch (error) {
+      setAutoTokenStatus(null);
+    }
+  };
+
+  useEffect(() => {
+    checkAutoTokenStatus();
+  }, []);
+
   const autoSetAllHighMatches = async () => {
     const highMatches = matchResults.filter((r) => r.bestMatch?.confidence === "high");
     
@@ -1148,16 +1197,31 @@ export default function Home() {
               <label htmlFor="bearerToken" className="block text-sm font-medium text-gray-700 mb-2">
                 Bearer Token
               </label>
-              <input
-                id="bearerToken"
-                name="bearerToken"
-                type="password"
-                value={token}
-                onChange={(e) => setToken(e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                placeholder="Enter your StockX Pro API token"
-                autoComplete="off"
-              />
+              <div className="flex gap-2">
+                <input
+                  id="bearerToken"
+                  name="bearerToken"
+                  type="password"
+                  value={token}
+                  onChange={(e) => setToken(e.target.value)}
+                  className="flex-1 px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  placeholder="Enter your StockX Pro API token (or use auto-refresh)"
+                  autoComplete="off"
+                />
+                <button
+                  onClick={refreshStockXToken}
+                  disabled={tokenRefreshing}
+                  className="px-4 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700 disabled:bg-gray-400 disabled:cursor-not-allowed whitespace-nowrap font-semibold"
+                  title="Automatically refresh token using StockX login credentials"
+                >
+                  {tokenRefreshing ? "⏳ Refreshing..." : "🤖 Auto-Refresh"}
+                </button>
+              </div>
+              {autoTokenStatus && (
+                <p className="mt-2 text-sm text-gray-600">
+                  🤖 Auto-token status: <span className="font-semibold">{autoTokenStatus}</span>
+                </p>
+              )}
             </div>
             <div className="flex items-center">
               <input
