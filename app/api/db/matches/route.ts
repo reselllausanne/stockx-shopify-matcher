@@ -1,5 +1,7 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/app/lib/prisma";
+
+export const dynamic = 'force-dynamic';
 
 /**
  * GET /api/db/matches
@@ -9,9 +11,9 @@ import { prisma } from "@/app/lib/prisma";
  *   - synced: "true" | "false" | undefined (filter by metafields sync status)
  *   - confidence: "high" | "medium" | "low" (filter by match confidence)
  */
-export async function GET(req: Request) {
+export async function GET(req: NextRequest) {
   try {
-    const { searchParams } = new URL(req.url);
+    const { searchParams } = req.nextUrl;
     const syncedFilter = searchParams.get("synced");
     const confidenceFilter = searchParams.get("confidence");
 
