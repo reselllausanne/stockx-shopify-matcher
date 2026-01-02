@@ -53,3 +53,7 @@ Thumbs.db
 # cursor
 .cursor/
 terminals/
+
+# StockX credentials
+stockx-cookies.json
+debug/

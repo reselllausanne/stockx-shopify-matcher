@@ -1054,6 +1054,45 @@ export default function Home() {
     }
   };
 
+  const refreshStockXTokenViaCookies = async () => {
+    if (!confirm("🍪 Refresh token using saved cookies?\n\nThis will:\n- Use cookies from stockx-cookies.json\n- Bypass bot detection!\n- Capture fresh bearer token\n- Store in database\n\nTakes ~5 seconds. Continue?\n\n⚠️ Make sure you've exported cookies first! See STOCKX_TOKEN_REFRESH.md")) {
+      return;
+    }
+
+    setTokenRefreshing(true);
+    try {
+      const res = await fetch("/api/auth/refresh-stockx-token-cookies", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ cronSecret: prompt("Enter CRON_SECRET (from env vars):") || "test" }),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        if (data.error === "Missing cookies file") {
+          throw new Error(
+            "❌ Missing stockx-cookies.json!\n\n" +
+            "INSTRUCTIONS:\n" +
+            "1. Login to StockX Pro in Chrome\n" +
+            "2. Press F12 → Console tab\n" +
+            "3. Run the script from: export-stockx-cookies.js\n" +
+            "4. Save to: stockx-cookies.json\n\n" +
+            "See STOCKX_TOKEN_REFRESH.md for full guide"
+          );
+        }
+        throw new Error(data.details || data.message || "Token refresh failed");
+      }
+
+      alert(`✅ Token Refreshed via Cookies!\n\nPreview: ${data.tokenPreview}\n\n✨ No bot detection! Fast & reliable!`);
+      setAutoTokenStatus("Active (via cookies) - Refresh cookies every ~7 days");
+    } catch (error: any) {
+      alert(`❌ Cookie-based refresh failed:\n\n${error.message}`);
+    } finally {
+      setTokenRefreshing(false);
+    }
+  };
+
   const checkAutoTokenStatus = async () => {
     try {
       const res = await fetch("/api/auth/refresh-stockx-token");
@@ -1212,9 +1251,17 @@ export default function Home() {
                   onClick={refreshStockXToken}
                   disabled={tokenRefreshing}
                   className="px-4 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700 disabled:bg-gray-400 disabled:cursor-not-allowed whitespace-nowrap font-semibold"
-                  title="Automatically refresh token using StockX login credentials"
+                  title="Automatically refresh token using StockX login credentials (may be blocked by bot detection)"
                 >
                   {tokenRefreshing ? "⏳ Refreshing..." : "🤖 Auto-Refresh"}
+                </button>
+                <button
+                  onClick={refreshStockXTokenViaCookies}
+                  disabled={tokenRefreshing}
+                  className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed whitespace-nowrap font-semibold"
+                  title="Refresh token using saved cookies (bypasses bot detection)"
+                >
+                  {tokenRefreshing ? "⏳ Refreshing..." : "🍪 Via Cookies"}
                 </button>
               </div>
               {autoTokenStatus && (
