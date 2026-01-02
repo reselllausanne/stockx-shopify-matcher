@@ -1043,17 +1043,16 @@ export default function Home() {
       const match = result.bestMatch;
       if (!match) continue;
 
-      const stockxOrder = orders.find((o) => o.orderNumber === match.stockxOrder.stockxOrderNumber);
-      if (!stockxOrder) {
-        console.error(`StockX order not found: ${match.stockxOrder.stockxOrderNumber}`);
-        failCount++;
-        continue;
-      }
+      // Use the stockxOrder from the match result (normalized)
+      const stockxOrder = match.stockxOrder;
+      
+      // Also find the raw order for pricing data
+      const rawStockxOrder = orders.find((o) => o.orderNumber === stockxOrder.stockxOrderNumber);
 
       // Calculate financials
       const shopifyRevenue = parseFloat(shopifyItem.totalPrice) || 0;
-      const pricingData = stockxOrder.orderNumber ? pricingByOrder[stockxOrder.orderNumber] : null;
-      const supplierCost = pricingData?.total || stockxOrder.amount || 0;
+      const pricingData = stockxOrder.stockxOrderNumber ? pricingByOrder[stockxOrder.stockxOrderNumber] : null;
+      const supplierCost = pricingData?.total || stockxOrder.offerAmount || rawStockxOrder?.amount || 0;
       const marginAmount = shopifyRevenue - supplierCost;
       const marginPercent = shopifyRevenue > 0 ? (marginAmount / shopifyRevenue) * 100 : 0;
 
@@ -1066,7 +1065,7 @@ export default function Home() {
           headers: { "content-type": "application/json" },
           body: JSON.stringify({
             shopifyOrderId: shopifyItem.shopifyOrderId,
-            stockxOrderNumber: stockxOrder.orderNumber,
+            stockxOrderNumber: stockxOrder.stockxOrderNumber || "",
             estimatedDelivery: stockxOrder.estimatedDeliveryDate || null,
             stockxStatus: stockxOrder.statusKey || "UNKNOWN",
             supplierCost: supplierCost.toFixed(2),
@@ -1094,8 +1093,8 @@ export default function Home() {
             shopifySizeEU: shopifyItem.sizeEU || null,
             shopifyTotalPrice: shopifyRevenue,
             shopifyCurrencyCode: shopifyItem.currencyCode || "CHF",
-            stockxOrderNumber: stockxOrder.orderNumber,
-            stockxProductName: stockxOrder.productTitle,
+            stockxOrderNumber: stockxOrder.stockxOrderNumber || "",
+            stockxProductName: stockxOrder.productName || stockxOrder.productTitle || "",
             stockxSizeEU: stockxOrder.sizeEU || null,
             stockxSkuKey: stockxOrder.skuKey || null,
             matchConfidence: match.confidence,
