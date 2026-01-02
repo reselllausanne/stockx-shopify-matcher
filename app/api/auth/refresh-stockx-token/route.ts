@@ -1,18 +1,35 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/app/lib/prisma";
-import { setTimeout as delay } from "timers/promises";
 import fs from "fs";
 import path from "path";
 
+// CRITICAL: Force Node.js runtime (Puppeteer requires Node APIs)
+export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-export const maxDuration = 60;
+export const maxDuration = 60; // Increase if needed (plan-dependent)
+
+// Native delay helper (replaces page.waitForTimeout)
+const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
 type PuppeteerContext = any;
 
-// Dynamic import of standard puppeteer (more reliable than puppeteer-extra in Next.js)
+// Detect if running on Vercel
+const isVercel = !!process.env.VERCEL;
+
+// Dynamic import: puppeteer-core on Vercel, puppeteer locally
 async function getBrowser() {
-  const puppeteerCore = await import("puppeteer");
-  return puppeteerCore.default;
+  console.log(`[BROWSER] Environment: ${isVercel ? 'Vercel' : 'Local'}`);
+  
+  if (isVercel) {
+    // Vercel: Use puppeteer-core + Sparticuz Chromium
+    const puppeteerCore = (await import("puppeteer-core")).default;
+    const chromium = (await import("@sparticuz/chromium-min")).default;
+    return { puppeteer: puppeteerCore, chromium };
+  } else {
+    // Local: Use standard puppeteer (includes Chromium)
+    const puppeteer = (await import("puppeteer")).default;
+    return { puppeteer, chromium: null };
+  }
 }
 
 // Debug helper
@@ -48,14 +65,13 @@ async function debugDump(page: any, label: string = "debug") {
           name: inp.name,
           type: inp.type,
           visible: visible,
-          parentVisible: inp.offsetParent !== null
         };
       });
     });
-    console.log(`[DEBUG ${label}] All inputs:`, JSON.stringify(inputs, null, 2));
+    console.log(`[DEBUG ${label}] Inputs:`, JSON.stringify(inputs, null, 2));
 
   } catch (error) {
-    console.error(`[DEBUG ${label}] Failed to create debug dump:`, error);
+    console.error(`[DEBUG ${label}] Failed:`, error);
   }
 }
 
@@ -92,7 +108,8 @@ export async function POST(req: Request) {
       );
     }
 
-    console.log("[TOKEN REFRESH] 🚀 Starting automated token refresh with MANUAL STEALTH...");
+    console.log("[TOKEN REFRESH] 🚀 Starting automated token refresh...");
+    console.log(`[TOKEN REFRESH] Environment: ${isVercel ? '☁️ Vercel' : '💻 Local'}`);
 
     const stockxEmail = process.env.STOCKX_EMAIL?.trim();
     const stockxPassword = process.env.STOCKX_PASSWORD?.trim();
@@ -104,32 +121,40 @@ export async function POST(req: Request) {
 
     console.log(`[TOKEN REFRESH] Using email: ${stockxEmail.substring(0, 3)}***@***`);
 
-    const puppeteer = await getBrowser();
+    // Load browser with environment-specific config
+    const { puppeteer, chromium } = await getBrowser();
     
-    console.log("[TOKEN REFRESH] 🌐 Launching browser with stealth args...");
-    browser = await puppeteer.launch({
-      headless: !isDebugMode ? "new" : false,
-      slowMo: isDebugMode ? 50 : 0,
-      args: [
-        '--no-sandbox',
-        '--disable-setuid-sandbox',
-        '--disable-dev-shm-usage',
-        '--disable-gpu',
-        '--window-size=1920,1080',
-        // STEALTH ARGS
-        '--disable-blink-features=AutomationControlled',
-        '--disable-features=IsolateOrigins,site-per-process',
-        '--disable-web-security',
-        '--disable-site-isolation-trials',
-        // Make it look like a real browser
-        '--user-agent=Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-      ],
-    });
+    console.log("[TOKEN REFRESH] 🌐 Launching browser...");
+    
+    // Browser launch config - different for Vercel vs Local
+    const launchConfig = isVercel && chromium
+      ? {
+          args: chromium.args,
+          defaultViewport: chromium.defaultViewport,
+          executablePath: await chromium.executablePath(),
+          headless: chromium.headless,
+        }
+      : {
+          headless: !isDebugMode ? "new" : false,
+          slowMo: isDebugMode ? 50 : 0,
+          args: [
+            '--no-sandbox',
+            '--disable-setuid-sandbox',
+            '--disable-dev-shm-usage',
+            '--disable-gpu',
+            '--window-size=1920,1080',
+            '--disable-blink-features=AutomationControlled',
+            '--disable-features=IsolateOrigins,site-per-process',
+            '--user-agent=Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+          ],
+        };
+
+    browser = await puppeteer.launch(launchConfig);
 
     const page = await browser.newPage();
     await page.setViewport({ width: 1920, height: 1080 });
 
-    // MANUAL STEALTH: Override navigator properties BEFORE any page loads
+    // Manual stealth: Override navigator properties BEFORE any page loads
     await page.evaluateOnNewDocument(() => {
       // Hide webdriver
       Object.defineProperty(navigator, 'webdriver', {
@@ -160,7 +185,6 @@ export async function POST(req: Request) {
       };
     });
 
-    // Set realistic user agent
     await page.setUserAgent(
       "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
     );
@@ -182,7 +206,7 @@ export async function POST(req: Request) {
       console.log("[TOKEN REFRESH] 📄 Navigating to StockX login...");
       await page.goto("https://accounts.stockx.com/login?redirectTo=https%3A%2F%2Fpro.stockx.com%2Fpurchasing%2Forders", {
         waitUntil: "domcontentloaded",
-        timeout: 30000,
+        timeout: 45000,
       });
 
       await delay(3000);
@@ -190,9 +214,9 @@ export async function POST(req: Request) {
       // Check for bot detection EARLY
       const pageText = await page.evaluate(() => document.body.innerText);
       if (pageText.includes("Appuyez et maintenez") || pageText.includes("Press & Hold")) {
-        console.log("[TOKEN REFRESH] ⚠️ PerimeterX bot detection triggered BEFORE login form!");
+        console.log("[TOKEN REFRESH] ⚠️ PerimeterX bot detection triggered!");
         await debugDump(page, "bot_detection_initial");
-        throw new Error("PerimeterX detected automation before login. Manual stealth bypassed initial load but still blocked. Cookies required.");
+        throw new Error("PerimeterX detected automation. Manual stealth bypassed initial checks but still blocked.");
       }
 
       // Dismiss cookie banner
@@ -223,7 +247,7 @@ export async function POST(req: Request) {
         });
         await delay(500);
       } catch (e) {
-        // Tab already selected
+        // Already selected
       }
 
       const ctx = page;
@@ -236,8 +260,8 @@ export async function POST(req: Request) {
       });
 
       if (!emailEl) {
-        await debugDump(page, "email_not_found_with_stealth");
-        throw new Error("Email input not found even with stealth techniques");
+        await debugDump(page, "email_not_found");
+        throw new Error("Email input not found");
       }
 
       console.log("[TOKEN REFRESH] ✅ Email found! Typing...");
@@ -256,7 +280,7 @@ export async function POST(req: Request) {
       });
 
       if (!passEl) {
-        await debugDump(page, "password_not_found_with_stealth");
+        await debugDump(page, "password_not_found");
         throw new Error("Password input not found");
       }
 
@@ -307,7 +331,7 @@ export async function POST(req: Request) {
 
       if (hasError || currentUrl.includes("login") || currentUrl.includes("captcha")) {
         await debugDump(page, "post_login_blocked");
-        throw new Error(`Login blocked AFTER submit. PerimeterX detected automation during login. URL: ${currentUrl}`);
+        throw new Error(`Login blocked. PerimeterX detected. URL: ${currentUrl}`);
       }
 
       // Navigate to purchasing orders
@@ -323,7 +347,7 @@ export async function POST(req: Request) {
       }
 
       if (capturedToken) {
-        console.log("[TOKEN REFRESH] 🎉 Token captured successfully with MANUAL STEALTH!");
+        console.log("[TOKEN REFRESH] 🎉 Token captured successfully!");
         
         try {
           await prisma.stockXToken.deleteMany({});
@@ -340,16 +364,17 @@ export async function POST(req: Request) {
 
         return NextResponse.json({
           success: true,
-          message: "Token refreshed with manual stealth techniques!",
+          message: "Token refreshed successfully!",
           tokenPreview: `${capturedToken.substring(0, 20)}...`,
+          environment: isVercel ? "Vercel" : "Local",
         });
       } else {
         await debugDump(page, "token_not_captured");
-        throw new Error("Login succeeded but no token captured from API calls");
+        throw new Error("Login succeeded but no token captured");
       }
 
     } catch (error: any) {
-      console.error("[TOKEN REFRESH] ❌ Login flow error:", error);
+      console.error("[TOKEN REFRESH] ❌ Error:", error);
       throw error;
     }
 
@@ -359,13 +384,13 @@ export async function POST(req: Request) {
       { 
         error: "Failed to refresh token", 
         details: error.message,
-        tip: "PerimeterX is very aggressive. If this keeps failing, cookies are the only reliable solution."
+        tip: "PerimeterX is very aggressive. If automated login fails consistently, cookie-based auth is more reliable."
       },
       { status: 500 }
     );
   } finally {
     if (browser) {
-      await browser.close();
+      await browser.close().catch(() => {});
     }
   }
 }
