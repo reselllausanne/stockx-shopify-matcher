@@ -1052,7 +1052,7 @@ export default function Home() {
 
       // Calculate financials
       const shopifyRevenue = parseFloat(shopifyItem.totalPrice) || 0;
-      const pricingData = pricingByOrder[stockxOrder.orderNumber];
+      const pricingData = stockxOrder.orderNumber ? pricingByOrder[stockxOrder.orderNumber] : null;
       const supplierCost = pricingData?.total || stockxOrder.amount || 0;
       const marginAmount = shopifyRevenue - supplierCost;
       const marginPercent = shopifyRevenue > 0 ? (marginAmount / shopifyRevenue) * 100 : 0;
