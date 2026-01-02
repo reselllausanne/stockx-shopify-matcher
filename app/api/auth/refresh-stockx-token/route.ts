@@ -7,6 +7,9 @@ import path from "path";
 export const dynamic = "force-dynamic";
 export const maxDuration = 60; // 60 seconds max (Vercel Pro needed for longer)
 
+// Type for Puppeteer context (can be Page or Frame)
+type PuppeteerContext = any;
+
 // Dynamic import of puppeteer (avoid Next.js bundling issues)
 async function getBrowser() {
   const puppeteerCore = await import("puppeteer");
@@ -40,10 +43,117 @@ async function debugDump(page: any, label: string = "debug") {
     const bodyText = await page.evaluate(() => document.body?.innerText?.substring(0, 500) || "");
     console.log(`[DEBUG ${label}] Page text preview:`, bodyText);
 
+    // Log all input fields for debugging
+    const inputs = await page.evaluate(() => {
+      const allInputs = Array.from(document.querySelectorAll('input'));
+      return allInputs.map(inp => ({
+        id: inp.id,
+        name: inp.name,
+        type: inp.type,
+        placeholder: inp.placeholder,
+        autocomplete: inp.getAttribute('autocomplete'),
+        visible: inp.offsetParent !== null
+      }));
+    });
+    console.log(`[DEBUG ${label}] All inputs on page:`, JSON.stringify(inputs, null, 2));
+
   } catch (error) {
     console.error(`[DEBUG ${label}] Failed to create debug dump:`, error);
   }
 }
+
+// Find which context (page or iframe) contains a selector
+async function findContextWithSelector(page: any, selector: string): Promise<PuppeteerContext> {
+  console.log(`[CONTEXT] Searching for selector: ${selector}`);
+  
+  // 1) Try main page first
+  try {
+    const el = await page.$(selector);
+    if (el) {
+      console.log(`[CONTEXT] ✅ Found in main page`);
+      return page;
+    }
+  } catch (e) {
+    // Continue to frames
+  }
+
+  // 2) Try all iframes
+  const frames = page.frames();
+  console.log(`[CONTEXT] Checking ${frames.length} frames...`);
+  
+  for (let i = 0; i < frames.length; i++) {
+    const frame = frames[i];
+    try {
+      const el = await frame.$(selector);
+      if (el) {
+        console.log(`[CONTEXT] ✅ Found in iframe ${i}: ${frame.url()}`);
+        return frame;
+      }
+    } catch (e) {
+      // Frame not accessible or selector not found
+    }
+  }
+
+  // 3) Wait a bit and retry (frames might be loading)
+  console.log(`[CONTEXT] Not found, waiting 500ms and retrying...`);
+  await delay(500);
+
+  // Retry main page
+  try {
+    const el = await page.$(selector);
+    if (el) {
+      console.log(`[CONTEXT] ✅ Found in main page (after delay)`);
+      return page;
+    }
+  } catch (e) {
+    // Continue
+  }
+
+  // Retry frames
+  const framesRetry = page.frames();
+  for (let i = 0; i < framesRetry.length; i++) {
+    const frame = framesRetry[i];
+    try {
+      const el = await frame.$(selector);
+      if (el) {
+        console.log(`[CONTEXT] ✅ Found in iframe ${i} (after delay): ${frame.url()}`);
+        return frame;
+      }
+    } catch (e) {
+      // Frame not accessible
+    }
+  }
+
+  throw new Error(`Selector not found in page or any iframe: ${selector}`);
+}
+
+// StockX-specific selectors (based on actual HTML analysis)
+const STOCKX_EMAIL_SELECTORS = [
+  '#email-login',                    // Primary: StockX's exact ID for login tab
+  'input[id="email-login"]',
+  'input[type="email"]',
+  'input[name="email"]',
+  'input[autocomplete="email"]',
+  'input[autocomplete="username"]',
+  'input[name="username"]',
+  'input[placeholder*="email" i]',
+].join(", ");
+
+const STOCKX_PASSWORD_SELECTORS = [
+  '#password-login',                 // Primary: StockX's exact ID for login tab
+  'input[id="password-login"]',
+  'input[type="password"]',
+  'input[name="password"]',
+  'input[autocomplete*="password" i]',
+  'input[placeholder*="password" i]',
+].join(", ");
+
+const STOCKX_SUBMIT_SELECTORS = [
+  'button[type="submit"]',
+  'input[type="submit"]',
+  'button[id*="login" i]',
+  'button[class*="submit" i]',
+].join(", ");
 
 export async function POST(req: Request) {
   let browser;
@@ -150,126 +260,88 @@ export async function POST(req: Request) {
         console.log("[TOKEN REFRESH] No cookie banner found or already dismissed");
       }
 
-      // Define comprehensive selector lists (including username for email)
-      const emailSelectors = [
-        'input[type="email"]',
-        'input[name="email"]',
-        'input#email',
-        'input[autocomplete="email"]',
-        'input[autocomplete="username"]',
-        'input[name="username"]',
-        'input[id*="email" i]',
-        'input[name*="email" i]',
-        'input[placeholder*="email" i]',
-        'input[aria-label*="email" i]',
-        'input[data-testid*="email" i]'
-      ].join(", ");
-
-      // Check if login is in an iframe
-      console.log("[TOKEN REFRESH] 🔍 Checking for iframes...");
-      const frames = page.frames();
-      let targetFrame: any = page; // Can be Page or Frame
+      // Find the context (page or iframe) that contains the email input
+      console.log("[TOKEN REFRESH] 🔍 Finding login form context...");
+      let ctx: PuppeteerContext;
       
-      for (const frame of frames) {
-        try {
-          const el = await frame.$(emailSelectors).catch(() => null);
-          if (el) {
-            console.log(`[TOKEN REFRESH] ✅ Found email input in iframe: ${frame.url()}`);
-            targetFrame = frame;
-            break;
-          }
-        } catch (e) {
-          // Frame not accessible, continue
-        }
+      try {
+        ctx = await findContextWithSelector(page, STOCKX_EMAIL_SELECTORS);
+      } catch (e) {
+        console.error("[TOKEN REFRESH] ❌ Email input not found in any context!");
+        await debugDump(page, "login_email_not_found");
+        throw new Error(`Email input not found. Debug files saved. URL: ${page.url()}`);
       }
 
-      // Try to find email input with DEBUG dump on failure
-      console.log("[TOKEN REFRESH] 🔍 Looking for email input...");
-      try {
-        await targetFrame.waitForSelector(emailSelectors, { visible: true, timeout: 20000 });
-        console.log("[TOKEN REFRESH] ✅ Email input found!");
-      } catch (e) {
-        console.error("[TOKEN REFRESH] ❌ Email input not found! Creating debug dump...");
-        await debugDump(page, "login_email_not_found");
-        throw new Error(`Email input not found. Debug files saved to /debug/ folder. URL: ${page.url()}`);
-      }
+      // IMPORTANT: Use the SAME context for ALL form interactions
 
       // Fill email
-      console.log("[TOKEN REFRESH] 📧 Entering email...");
-      await targetFrame.type(emailSelectors, stockxEmail, { delay: 30 });
-
-      // Wait a bit before password
-      await delay(500);
-
-      // Password selectors
-      const passwordSelectors = [
-        'input[type="password"]',
-        'input[name="password"]',
-        'input#password',
-        'input[autocomplete*="password" i]',
-        'input[placeholder*="password" i]',
-        'input[aria-label*="password" i]',
-        'input[data-testid*="password" i]'
-      ].join(", ");
-
+      console.log("[TOKEN REFRESH] 📧 Filling email...");
       try {
-        await targetFrame.waitForSelector(passwordSelectors, { visible: true, timeout: 10000 });
-        console.log("[TOKEN REFRESH] ✅ Password input found!");
+        await ctx.waitForSelector(STOCKX_EMAIL_SELECTORS, { visible: true, timeout: 10000 });
+        await ctx.click(STOCKX_EMAIL_SELECTORS, { clickCount: 3 }); // Select all
+        await ctx.type(STOCKX_EMAIL_SELECTORS, stockxEmail, { delay: 30 });
+        console.log("[TOKEN REFRESH] ✅ Email filled");
       } catch (e) {
-        console.error("[TOKEN REFRESH] ❌ Password input not found! Creating debug dump...");
-        await debugDump(page, "login_password_not_found");
-        throw new Error(`Password input not found. Debug files saved to /debug/ folder. URL: ${page.url()}`);
+        await debugDump(page, "email_fill_failed");
+        throw new Error(`Failed to fill email: ${(e as Error).message}`);
       }
 
-      // Fill password
-      console.log("[TOKEN REFRESH] 🔑 Entering password...");
-      await targetFrame.type(passwordSelectors, stockxPassword, { delay: 30 });
-
-      // Wait a bit before clicking
       await delay(500);
 
-      // Login button selectors
-      const loginButtonSelectors = [
-        'button[type="submit"]',
-        'button[data-testid*="login" i]',
-        'button[data-testid*="submit" i]',
-        'input[type="submit"]',
-        'button[class*="login" i]',
-        'button[class*="submit" i]',
-        'button[id*="login" i]',
-        'button[id*="submit" i]'
-      ].join(", ");
-
+      // Fill password (SAME context as email!)
+      console.log("[TOKEN REFRESH] 🔑 Filling password...");
       try {
-        await targetFrame.waitForSelector(loginButtonSelectors, { visible: true, timeout: 10000 });
-        console.log("[TOKEN REFRESH] ✅ Login button found!");
+        await ctx.waitForSelector(STOCKX_PASSWORD_SELECTORS, { visible: true, timeout: 10000 });
+        await ctx.click(STOCKX_PASSWORD_SELECTORS, { clickCount: 3 }); // Select all
+        await ctx.type(STOCKX_PASSWORD_SELECTORS, stockxPassword, { delay: 30 });
+        console.log("[TOKEN REFRESH] ✅ Password filled");
       } catch (e) {
-        console.error("[TOKEN REFRESH] ❌ Login button not found! Creating debug dump...");
-        await debugDump(page, "login_button_not_found");
-        throw new Error(`Login button not found. Debug files saved to /debug/ folder. URL: ${page.url()}`);
+        await debugDump(page, "password_fill_failed");
+        throw new Error(`Failed to fill password: ${(e as Error).message}`);
       }
 
+      await delay(500);
+
+      // Click login button (SAME context!)
       console.log("[TOKEN REFRESH] 🔓 Clicking login button...");
-      await targetFrame.click(loginButtonSelectors);
+      try {
+        await ctx.waitForSelector(STOCKX_SUBMIT_SELECTORS, { visible: true, timeout: 10000 });
+        
+        // Click and wait for navigation (race condition to handle both cases)
+        await Promise.race([
+          page.waitForNavigation({ waitUntil: "domcontentloaded", timeout: 30000 }).catch(() => null),
+          (async () => {
+            await ctx.click(STOCKX_SUBMIT_SELECTORS);
+            await delay(1000);
+          })()
+        ]);
+        
+        console.log("[TOKEN REFRESH] ✅ Login button clicked");
+      } catch (e) {
+        await debugDump(page, "submit_click_failed");
+        throw new Error(`Failed to click login button: ${(e as Error).message}`);
+      }
 
       // Wait for navigation after login
       console.log("[TOKEN REFRESH] ⏳ Waiting for authentication...");
-      try {
-        await page.waitForNavigation({ waitUntil: "domcontentloaded", timeout: 30000 });
-      } catch (e) {
-        console.log("[TOKEN REFRESH] ⚠️ Navigation timeout, but continuing (may already be on target page)");
-      }
-
-      // Additional wait for full page load
       await delay(3000);
 
       // Check if we're successfully logged in or if there's an error
       const currentUrl = page.url();
       console.log("[TOKEN REFRESH] 📍 Current URL after login:", currentUrl);
 
-      if (currentUrl.includes("login") || currentUrl.includes("error")) {
-        await debugDump(page, "login_failed");
-        throw new Error(`Login may have failed. Still on login page or error page. URL: ${currentUrl}`);
+      // Check for login errors
+      const hasError = await page.evaluate(() => {
+        const errorText = document.body.innerText.toLowerCase();
+        return errorText.includes('incorrect') || 
+               errorText.includes('invalid') || 
+               errorText.includes('wrong password') ||
+               errorText.includes('error');
+      });
+
+      if (hasError || currentUrl.includes("login") || currentUrl.includes("error")) {
+        await debugDump(page, "login_failed_still_on_login");
+        throw new Error(`Login may have failed. Still on login/error page. URL: ${currentUrl}`);
       }
 
       // If not already on purchasing orders, navigate there
@@ -283,6 +355,9 @@ export async function POST(req: Request) {
         // Wait for GraphQL request to fire
         console.log("[TOKEN REFRESH] ⏳ Waiting for API call...");
         await delay(5000);
+      } else {
+        // Already on the right page, just wait for token
+        await delay(3000);
       }
 
       // Check if we captured the token
