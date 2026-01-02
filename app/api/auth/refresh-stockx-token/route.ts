@@ -1,13 +1,14 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/app/lib/prisma";
 
-// Import Puppeteer with stealth plugin to avoid detection
-const puppeteer = require("puppeteer-extra");
-const StealthPlugin = require("puppeteer-extra-plugin-stealth");
-puppeteer.use(StealthPlugin());
-
 export const dynamic = "force-dynamic";
 export const maxDuration = 60; // 60 seconds max (Vercel Pro needed for longer)
+
+// Dynamic import of puppeteer (avoid Next.js bundling issues)
+async function getBrowser() {
+  const puppeteerCore = await import("puppeteer");
+  return puppeteerCore.default;
+}
 
 /**
  * POST /api/auth/refresh-stockx-token
@@ -38,6 +39,7 @@ export async function POST(req: Request) {
 
     // Launch headless browser
     console.log("[TOKEN REFRESH] 🌐 Launching browser...");
+    const puppeteer = await getBrowser();
     const browser = await puppeteer.launch({
       headless: true,
       args: [
@@ -46,7 +48,8 @@ export async function POST(req: Request) {
         '--disable-dev-shm-usage',
         '--disable-gpu',
         '--disable-web-security',
-        '--disable-features=IsolateOrigins,site-per-process'
+        '--disable-features=IsolateOrigins,site-per-process',
+        '--user-agent=Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
       ],
     });
 
