@@ -9,9 +9,15 @@ export const maxDuration = 60;
 
 type PuppeteerContext = any;
 
-async function getBrowser() {
-  const puppeteerCore = await import("puppeteer");
-  return puppeteerCore.default;
+// Dynamic import of puppeteer-extra with stealth plugin
+async function getBrowserWithStealth() {
+  const puppeteerExtra = (await import("puppeteer-extra")).default;
+  const StealthPlugin = (await import("puppeteer-extra-plugin-stealth")).default;
+  
+  // Apply stealth plugin with all evasion techniques
+  puppeteerExtra.use(StealthPlugin());
+  
+  return puppeteerExtra;
 }
 
 // Debug helper
@@ -103,7 +109,7 @@ export async function POST(req: Request) {
       );
     }
 
-    console.log("[TOKEN REFRESH] 🚀 Starting automated token refresh...");
+    console.log("[TOKEN REFRESH] 🚀 Starting automated token refresh WITH STEALTH MODE...");
 
     const stockxEmail = process.env.STOCKX_EMAIL?.trim();
     const stockxPassword = process.env.STOCKX_PASSWORD?.trim();
@@ -115,25 +121,41 @@ export async function POST(req: Request) {
 
     console.log(`[TOKEN REFRESH] Using email: ${stockxEmail.substring(0, 3)}***@***`);
 
-    const puppeteer = await getBrowser();
+    // Get puppeteer-extra with stealth plugin
+    console.log("[TOKEN REFRESH] 🥷 Loading Puppeteer with Stealth plugin...");
+    const puppeteer = await getBrowserWithStealth();
+    
+    console.log("[TOKEN REFRESH] 🌐 Launching stealth browser...");
     browser = await puppeteer.launch({
-      headless: !isDebugMode,
+      headless: !isDebugMode ? "new" : false, // Use "new" headless mode for better stealth
       slowMo: isDebugMode ? 50 : 0,
       args: [
         '--no-sandbox',
         '--disable-setuid-sandbox',
         '--disable-dev-shm-usage',
         '--disable-gpu',
-        '--disable-web-security',
+        '--window-size=1920,1080',
+        '--disable-blink-features=AutomationControlled', // Hide automation
         '--disable-features=IsolateOrigins,site-per-process',
       ],
     });
 
     const page = await browser.newPage();
 
+    // Set realistic viewport
+    await page.setViewport({ width: 1920, height: 1080 });
+
+    // Set realistic user agent (stealth plugin already modifies this, but we can be explicit)
     await page.setUserAgent(
       "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
     );
+
+    // Additional stealth: Remove webdriver property (stealth plugin does this too, but double-check)
+    await page.evaluateOnNewDocument(() => {
+      Object.defineProperty(navigator, 'webdriver', {
+        get: () => undefined,
+      });
+    });
 
     // Capture bearer token
     let capturedToken: string | null = null;
@@ -155,7 +177,16 @@ export async function POST(req: Request) {
         timeout: 30000,
       });
 
-      await delay(2000);
+      // Wait for page to fully load
+      await delay(3000);
+
+      // Check if we hit bot detection
+      const pageText = await page.evaluate(() => document.body.innerText);
+      if (pageText.includes("Appuyez et maintenez") || pageText.includes("Press & Hold")) {
+        console.log("[TOKEN REFRESH] ⚠️ Bot detection challenge detected!");
+        await debugDump(page, "bot_detection_challenge");
+        throw new Error("PerimeterX bot detection triggered. Stealth mode may need additional configuration. Try cookie-based method instead.");
+      }
 
       // Dismiss cookie banner
       console.log("[TOKEN REFRESH] 🍪 Checking for cookie banner...");
@@ -186,7 +217,6 @@ export async function POST(req: Request) {
       console.log("[TOKEN REFRESH] 🔍 Ensuring we're on Log In tab...");
       try {
         const loginTabClicked = await page.evaluate(() => {
-          // Look for "Log In" tab button
           const allElements = Array.from(document.querySelectorAll('button, a, div[role="tab"]'));
           const loginTab = allElements.find(el => {
             const text = el.textContent?.trim().toLowerCase();
@@ -203,14 +233,11 @@ export async function POST(req: Request) {
         if (loginTabClicked) {
           console.log("[TOKEN REFRESH] ✅ Clicked Log In tab");
           await delay(500);
-        } else {
-          console.log("[TOKEN REFRESH] ℹ️ No Log In tab found (might already be selected)");
         }
       } catch (e) {
-        console.log("[TOKEN REFRESH] ⚠️ Failed to click Log In tab:", e);
+        console.log("[TOKEN REFRESH] ℹ️ No Log In tab found (might already be selected)");
       }
 
-      // Use the main page context (StockX login is not in iframe based on HTML analysis)
       const ctx: PuppeteerContext = page;
 
       // STEP 1: Find and fill EMAIL using ElementHandle
@@ -226,13 +253,14 @@ export async function POST(req: Request) {
       }
 
       console.log("[TOKEN REFRESH] ✅ Email element found! Typing...");
-      await emailEl.click({ clickCount: 3 }); // Select all (in case there's cached value)
-      await emailEl.type(stockxEmail, { delay: 30 });
+      await emailEl.click({ clickCount: 3 });
+      await delay(100); // Small delay after selection
+      await emailEl.type(stockxEmail, { delay: 50 }); // Slower typing = more human-like
       console.log("[TOKEN REFRESH] ✅ Email typed");
 
-      await delay(500);
+      await delay(800); // Longer delay between fields = more human-like
 
-      // STEP 2: Find and fill PASSWORD using ElementHandle (after email typing, in case of re-render)
+      // STEP 2: Find and fill PASSWORD using ElementHandle
       console.log("[TOKEN REFRESH] 🔑 Finding password input...");
       const passEl = await ctx.waitForSelector(PASSWORD_SELECTORS, { 
         visible: true, 
@@ -246,10 +274,11 @@ export async function POST(req: Request) {
 
       console.log("[TOKEN REFRESH] ✅ Password element found! Typing...");
       await passEl.click({ clickCount: 3 });
-      await passEl.type(stockxPassword, { delay: 30 });
+      await delay(100);
+      await passEl.type(stockxPassword, { delay: 50 });
       console.log("[TOKEN REFRESH] ✅ Password typed");
 
-      await delay(500);
+      await delay(800);
 
       // STEP 3: Find and click SUBMIT button using ElementHandle
       console.log("[TOKEN REFRESH] 🔓 Finding submit button...");
@@ -265,7 +294,7 @@ export async function POST(req: Request) {
 
       console.log("[TOKEN REFRESH] ✅ Submit button found! Clicking...");
       
-      // Click and wait for navigation (with race condition handling)
+      // Click and wait for navigation
       await Promise.race([
         page.waitForNavigation({ waitUntil: "domcontentloaded", timeout: 30000 }).catch(() => null),
         (async () => {
@@ -278,23 +307,25 @@ export async function POST(req: Request) {
 
       // Wait for authentication
       console.log("[TOKEN REFRESH] ⏳ Waiting for authentication...");
-      await delay(3000);
+      await delay(4000);
 
       const currentUrl = page.url();
       console.log("[TOKEN REFRESH] 📍 Current URL after login:", currentUrl);
 
-      // Check for login errors
+      // Check for login errors or bot detection
       const hasError = await page.evaluate(() => {
         const bodyText = document.body.innerText.toLowerCase();
         return bodyText.includes('incorrect') || 
                bodyText.includes('invalid') || 
                bodyText.includes('wrong password') ||
-               bodyText.includes('try again');
+               bodyText.includes('try again') ||
+               bodyText.includes('captcha') ||
+               bodyText.includes('press & hold');
       });
 
       if (hasError || currentUrl.includes("login") || currentUrl.includes("error") || currentUrl.includes("captcha")) {
         await debugDump(page, "login_failed_or_blocked");
-        throw new Error(`Login failed or blocked by bot detection. URL: ${currentUrl}. Try cookie-based method instead.`);
+        throw new Error(`Login failed or blocked by bot detection. URL: ${currentUrl}. Stealth mode bypassed initial check but login failed. Try cookie-based method.`);
       }
 
       // Navigate to purchasing orders if not there already
@@ -312,7 +343,7 @@ export async function POST(req: Request) {
 
       // Check if token captured
       if (capturedToken) {
-        console.log("[TOKEN REFRESH] ✅ Token captured successfully!");
+        console.log("[TOKEN REFRESH] 🎉 Token captured successfully WITH STEALTH MODE!");
         
         // Save to database
         try {
@@ -330,8 +361,9 @@ export async function POST(req: Request) {
 
         return NextResponse.json({
           success: true,
-          message: "StockX token refreshed successfully",
+          message: "StockX token refreshed successfully (with stealth mode!)",
           tokenPreview: `${capturedToken.substring(0, 20)}...`,
+          stealthMode: true,
         });
       } else {
         await debugDump(page, "token_not_captured");
@@ -349,7 +381,7 @@ export async function POST(req: Request) {
       { 
         error: "Failed to refresh token", 
         details: error.message,
-        tip: "If blocked by bot detection, use the '🍪 Via Cookies' button instead. See STOCKX_TOKEN_REFRESH.md"
+        tip: "If stealth mode still fails, use the '🍪 Via Cookies' button. See STOCKX_TOKEN_REFRESH.md"
       },
       { status: 500 }
     );
