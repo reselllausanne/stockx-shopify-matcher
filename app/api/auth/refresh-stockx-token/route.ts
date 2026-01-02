@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/app/lib/prisma";
+import { setTimeout as delay } from "timers/promises";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60; // 60 seconds max (Vercel Pro needed for longer)
@@ -82,7 +83,7 @@ export async function POST(req: Request) {
       });
 
       // Wait a bit for any redirects or dynamic content
-      await page.waitForTimeout(2000);
+      await delay(2000);
 
       // Try to find the email input (multiple possible selectors)
       console.log("[TOKEN REFRESH] 🔍 Looking for email input...");
@@ -109,7 +110,7 @@ export async function POST(req: Request) {
       }
 
       // Wait a bit before password
-      await page.waitForTimeout(500);
+      await delay(500);
 
       // Fill in password
       console.log("[TOKEN REFRESH] 🔑 Entering password...");
@@ -129,7 +130,7 @@ export async function POST(req: Request) {
       }
 
       // Wait a bit before clicking
-      await page.waitForTimeout(500);
+      await delay(500);
 
       // Click login button (multiple possible selectors, no :has-text)
       console.log("[TOKEN REFRESH] 🔓 Clicking login button...");
@@ -159,7 +160,7 @@ export async function POST(req: Request) {
       await page.waitForNavigation({ waitUntil: "domcontentloaded", timeout: 30000 });
 
       // Additional wait for full page load
-      await page.waitForTimeout(3000);
+      await delay(3000);
 
       // Navigate to purchasing orders to trigger GraphQL request
       if (!capturedToken) {
@@ -171,7 +172,7 @@ export async function POST(req: Request) {
 
         // Wait for GraphQL request to fire
         console.log("[TOKEN REFRESH] ⏳ Waiting for API call...");
-        await page.waitForTimeout(5000);
+        await delay(5000);
       }
 
       if (!capturedToken) {
