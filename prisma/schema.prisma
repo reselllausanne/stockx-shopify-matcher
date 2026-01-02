@@ -1,0 +1,64 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model OrderMatch {
+  id                      String   @id @default(uuid())
+  
+  // Shopify identifiers
+  shopifyOrderId          String   // gid://shopify/Order/...
+  shopifyOrderName        String   // #4654
+  shopifyLineItemId       String   @unique // unique per line item
+  shopifyProductTitle     String
+  shopifySku              String?
+  shopifySizeEU           String?
+  shopifyTotalPrice       Float
+  shopifyCurrencyCode     String   @default("CHF")
+  
+  // StockX identifiers
+  stockxOrderNumber       String   // 03-XXX...
+  stockxProductName       String
+  stockxSizeEU            String?
+  stockxSkuKey            String?
+  
+  // Match metadata
+  matchConfidence         String   // "high", "medium", "low"
+  matchScore              Float    // 0-100
+  matchType               String   // "auto", "manual"
+  matchReasons            String   // JSON array: ["SKU exact", "Size match", ...]
+  timeDiffHours           Float?   // time difference between orders
+  
+  // StockX status (for monitoring)
+  stockxStatus            String   // "LINKED_ORDER", "ORDER_CREATED", etc.
+  stockxEstimatedDelivery String?  // ISO date
+  lastStatusCheck         DateTime @default(now())
+  
+  // Shopify metafields sync status
+  shopifyMetafieldsSynced Boolean  @default(false)
+  shopifyMetafieldsSetAt  DateTime?
+  
+  // Financial data (for backup & analytics)
+  supplierCost            Float    // Total cost from StockX
+  marginAmount            Float    // Revenue - Cost
+  marginPercent           Float    // (Margin / Revenue) * 100
+  
+  // Manual overrides
+  manualCostOverride      Float?   // User-entered cost (overrides auto)
+  
+  // Timestamps
+  createdAt               DateTime @default(now())
+  updatedAt               DateTime @updatedAt
+  
+  @@index([shopifyOrderId])
+  @@index([stockxOrderNumber])
+  @@index([shopifyMetafieldsSynced])
+  @@index([lastStatusCheck])
+}

@@ -1,0 +1,130 @@
+// app/api/shopify/set-metafields/route.ts
+import { NextResponse } from "next/server";
+import { shopifyGraphQL } from "@/lib/shopifyAdmin";
+
+export const runtime = "nodejs";
+
+const MUTATION = /* GraphQL */ `
+mutation SetOrderMetafields($metafields: [MetafieldsSetInput!]!) {
+  metafieldsSet(metafields: $metafields) {
+    metafields { id namespace key type value }
+    userErrors { field message }
+  }
+}
+`;
+
+function toDateOnly(value: string | null | undefined): string | null {
+  if (!value) return null;
+  // accepts ISO; returns YYYY-MM-DD
+  const d = new Date(value);
+  if (isNaN(d.getTime())) return null;
+  return d.toISOString().slice(0, 10);
+}
+
+export async function POST(req: Request) {
+  try {
+    const body = await req.json().catch(() => ({}));
+
+    const shopifyOrderId = String(body?.shopifyOrderId ?? "").trim();
+    const stockxOrderNumber = String(body?.stockxOrderNumber ?? "").trim();
+
+    if (!shopifyOrderId || !stockxOrderNumber) {
+      return NextResponse.json(
+        { error: "Missing shopifyOrderId or stockxOrderNumber" },
+        { status: 400 }
+      );
+    }
+
+    const estimatedDelivery = toDateOnly(body?.estimatedDelivery ?? null);
+    const stockxStatus = String(body?.stockxStatus ?? "UNKNOWN");
+    const supplierCost = String(body?.supplierCost ?? "0");
+    const marginAmount = String(body?.marginAmount ?? "0");
+    const marginPercent = String(body?.marginPercent ?? "0");
+
+    console.log(`[SHOPIFY] Setting metafields for order ${shopifyOrderId}`);
+    console.log(`  - StockX Order: ${stockxOrderNumber}`);
+    console.log(`  - Status: ${stockxStatus}`);
+    console.log(`  - Estimated Delivery: ${estimatedDelivery || "N/A"}`);
+    console.log(`  - Supplier Cost: ${supplierCost}`);
+    console.log(`  - Margin: ${marginAmount} (${marginPercent}%)`);
+
+    const metafields: any[] = [
+      {
+        ownerId: shopifyOrderId,
+        namespace: "supplier",
+        key: "order_number",
+        type: "single_line_text_field",
+        value: stockxOrderNumber,
+      },
+      {
+        ownerId: shopifyOrderId,
+        namespace: "supplier",
+        key: "status",
+        type: "single_line_text_field",
+        value: stockxStatus,
+      },
+      {
+        ownerId: shopifyOrderId,
+        namespace: "supplier",
+        key: "total_cost",
+        type: "number_decimal",
+        value: supplierCost,
+      },
+      {
+        ownerId: shopifyOrderId,
+        namespace: "supplier",
+        key: "margin_amount",
+        type: "number_decimal",
+        value: marginAmount,
+      },
+      {
+        ownerId: shopifyOrderId,
+        namespace: "supplier",
+        key: "margin_percent",
+        type: "number_decimal",
+        value: marginPercent,
+      },
+    ];
+
+    if (estimatedDelivery) {
+      metafields.push({
+        ownerId: shopifyOrderId,
+        namespace: "supplier",
+        key: "estimated_delivery",
+        type: "date",
+        value: estimatedDelivery,
+      });
+    }
+
+    const { data, errors } = await shopifyGraphQL<{
+      metafieldsSet: {
+        metafields: any[];
+        userErrors: { field: string[] | null; message: string }[];
+      };
+    }>(MUTATION, { metafields });
+
+    if (errors?.length) {
+      console.error("[SHOPIFY] GraphQL errors:", errors);
+      return NextResponse.json({ error: "Shopify GraphQL errors", details: errors }, { status: 500 });
+    }
+
+    const userErrors = data?.metafieldsSet?.userErrors ?? [];
+    if (userErrors.length) {
+      console.error("[SHOPIFY] User errors:", userErrors);
+      return NextResponse.json(
+        { error: "Shopify userErrors", details: userErrors },
+        { status: 400 }
+      );
+    }
+
+    console.log(`[SHOPIFY] Successfully set ${data.metafieldsSet.metafields.length} metafields`);
+
+    return NextResponse.json({ ok: true, metafields: data.metafieldsSet.metafields });
+  } catch (err: any) {
+    console.error("[/api/shopify/set-metafields] error:", err);
+    return NextResponse.json(
+      { error: err?.message || "Unknown error" },
+      { status: 500 }
+    );
+  }
+}
