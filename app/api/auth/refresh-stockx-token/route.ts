@@ -77,44 +77,101 @@ export async function POST(req: Request) {
       // Navigate to StockX login page
       console.log("[TOKEN REFRESH] 📄 Navigating to StockX login...");
       await page.goto("https://accounts.stockx.com/login?redirectTo=https%3A%2F%2Fpro.stockx.com%2Fpurchasing%2Forders", {
-        waitUntil: "networkidle2",
+        waitUntil: "domcontentloaded",
         timeout: 30000,
       });
 
-      // Wait for login form
-      await page.waitForSelector('input[name="email"], input[type="email"]', { timeout: 10000 });
+      // Wait a bit for any redirects or dynamic content
+      await page.waitForTimeout(2000);
+
+      // Try to find the email input (multiple possible selectors)
+      console.log("[TOKEN REFRESH] 🔍 Looking for email input...");
+      await page.waitForSelector('input[type="email"], input[name="email"], input#email, input[data-testid="email-input"]', { 
+        timeout: 15000,
+        visible: true
+      });
 
       // Fill in email
       console.log("[TOKEN REFRESH] 📧 Entering email...");
-      await page.type('input[name="email"], input[type="email"]', stockxEmail, { delay: 50 });
+      const emailFilled = await page.evaluate((email) => {
+        const emailInput = document.querySelector('input[type="email"], input[name="email"], input#email') as HTMLInputElement;
+        if (emailInput) {
+          emailInput.value = email;
+          emailInput.dispatchEvent(new Event('input', { bubbles: true }));
+          emailInput.dispatchEvent(new Event('change', { bubbles: true }));
+          return true;
+        }
+        return false;
+      }, stockxEmail);
+
+      if (!emailFilled) {
+        throw new Error("Could not find email input field");
+      }
+
+      // Wait a bit before password
+      await page.waitForTimeout(500);
 
       // Fill in password
       console.log("[TOKEN REFRESH] 🔑 Entering password...");
-      await page.type('input[name="password"], input[type="password"]', stockxPassword, { delay: 50 });
+      const passwordFilled = await page.evaluate((password) => {
+        const passwordInput = document.querySelector('input[type="password"], input[name="password"], input#password') as HTMLInputElement;
+        if (passwordInput) {
+          passwordInput.value = password;
+          passwordInput.dispatchEvent(new Event('input', { bubbles: true }));
+          passwordInput.dispatchEvent(new Event('change', { bubbles: true }));
+          return true;
+        }
+        return false;
+      }, stockxPassword);
 
-      // Click login button
-      console.log("[TOKEN REFRESH] 🔓 Clicking login...");
-      await Promise.all([
-        page.click('button[type="submit"], button:has-text("Log In")'),
-        page.waitForNavigation({ waitUntil: "networkidle2", timeout: 30000 }),
-      ]);
+      if (!passwordFilled) {
+        throw new Error("Could not find password input field");
+      }
 
-      // Wait for redirect to Pro dashboard (means we're logged in)
-      console.log("[TOKEN REFRESH] ⏳ Waiting for authentication...");
-      await page.waitForSelector('[data-testid="buying-orders"], .orders-table, h1:has-text("Purchasing")', {
-        timeout: 20000,
+      // Wait a bit before clicking
+      await page.waitForTimeout(500);
+
+      // Click login button (multiple possible selectors, no :has-text)
+      console.log("[TOKEN REFRESH] 🔓 Clicking login button...");
+      const loginClicked = await page.evaluate(() => {
+        // Try multiple button selectors
+        const button = 
+          document.querySelector('button[type="submit"]') ||
+          document.querySelector('button[data-testid="login-button"]') ||
+          Array.from(document.querySelectorAll('button')).find(btn => 
+            btn.textContent?.toLowerCase().includes('log in') ||
+            btn.textContent?.toLowerCase().includes('sign in')
+          );
+        
+        if (button) {
+          (button as HTMLButtonElement).click();
+          return true;
+        }
+        return false;
       });
+
+      if (!loginClicked) {
+        throw new Error("Could not find or click login button");
+      }
+
+      // Wait for navigation after login
+      console.log("[TOKEN REFRESH] ⏳ Waiting for authentication...");
+      await page.waitForNavigation({ waitUntil: "domcontentloaded", timeout: 30000 });
+
+      // Additional wait for full page load
+      await page.waitForTimeout(3000);
 
       // Navigate to purchasing orders to trigger GraphQL request
       if (!capturedToken) {
-        console.log("[TOKEN REFRESH] 🔄 Navigating to purchasing orders...");
+        console.log("[TOKEN REFRESH] 🔄 Navigating to purchasing orders to trigger API call...");
         await page.goto("https://pro.stockx.com/purchasing/orders", {
-          waitUntil: "networkidle2",
+          waitUntil: "domcontentloaded",
           timeout: 30000,
         });
 
-        // Wait a bit for GraphQL request to fire
-        await page.waitForTimeout(3000);
+        // Wait for GraphQL request to fire
+        console.log("[TOKEN REFRESH] ⏳ Waiting for API call...");
+        await page.waitForTimeout(5000);
       }
 
       if (!capturedToken) {
