@@ -213,17 +213,23 @@ export async function POST(req: Request) {
     let skippedCount = 0;
 
     for (const shopifyItem of shopifyItems) {
-      console.log(`[SYNC] Processing: ${shopifyItem.orderName} - ${shopifyItem.title}`);
+      console.log(`[SYNC] Processing: ${shopifyItem.orderName} - ${shopifyItem.title} (SKU: ${shopifyItem.sku || "N/A"})`);
 
       // 🔍 FIRST: Check if this Shopify item is already in DB
       const existingInDb = await prisma.orderMatch.findUnique({
         where: { shopifyLineItemId: shopifyItem.lineItemId },
       });
 
+      if (existingInDb) {
+        console.log(`[SYNC] ✓ Already in DB (skipping Essential Hoodie check)`);
+      }
+
       // 🎯 AUTO-ADD: Essential Hoodies with 42 CHF cost
       if (!existingInDb) {
-        const isEssentialHoodie = shopifyItem.sku && 
-          ["FWUG24K102NA", "FWUG24K101NA", "FWUG24K103NA"].includes(shopifyItem.sku);
+        const essentialSkus = ["FWUG24K102NA", "FWUG24K101NA", "FWUG24K103NA"];
+        const isEssentialHoodie = shopifyItem.sku && essentialSkus.includes(shopifyItem.sku);
+        
+        console.log(`[SYNC] 🔍 Essential Hoodie check: SKU=${shopifyItem.sku}, Match=${isEssentialHoodie}`);
 
         if (isEssentialHoodie) {
           const supplierCost = 42;
