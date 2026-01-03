@@ -28,9 +28,9 @@ export async function GET(request: NextRequest) {
           gte: startDate,
           lte: endDate,
         },
-        AND: [
-          { marginAmount: { not: null } },
-          { marginPercent: { not: null } },
+        NOT: [
+          { marginAmount: null },
+          { marginPercent: null },
         ],
       },
       orderBy: {
