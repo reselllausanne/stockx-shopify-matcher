@@ -34,11 +34,32 @@ query OrdersForMatching($first: Int!, $query: String!) {
         displayFinancialStatus
         displayFulfillmentStatus
         customer { displayName }
+        
+        # Order-level real totals (after discounts)
+        currentSubtotalPriceSet {
+          shopMoney {
+            amount
+            currencyCode
+          }
+        }
+        currentTotalDiscountsSet {
+          shopMoney {
+            amount
+            currencyCode
+          }
+        }
+        currentTotalPriceSet {
+          shopMoney {
+            amount
+            currencyCode
+          }
+        }
+        
         lineItems(first: 50) {
           edges {
             node {
               id
-              title
+              name
               sku
               quantity
               variantTitle
@@ -92,17 +113,23 @@ export async function POST(req: Request) {
       const liEdges = o.lineItems?.edges ?? [];
       for (const liE of liEdges) {
         const li = liE.node;
-        const unit = li.originalUnitPriceSet?.shopMoney;
-        const total = li.discountedTotalSet?.shopMoney;
-        const currencyCode = total?.currencyCode || unit?.currencyCode || "CHF";
-        const totalAmount = total?.amount ?? "0";
+        
+        // IMPORTANT: Use discountedTotalSet for real sell price (after discounts)
+        const discounted = li.discountedTotalSet?.shopMoney;
+        const unit = li.originalUnitPriceSet?.shopMoney; // For reference only
+        
+        const currencyCode = discounted?.currencyCode || unit?.currencyCode || "CHF";
+        const totalAmount = discounted?.amount ?? "0"; // ✅ DISCOUNTED total
         const qty = Number(li.quantity ?? 0);
-        const unitAmount =
-          unit?.amount ??
-          (qty > 0 ? String(Number(totalAmount) / qty) : "0");
+        
+        // Unit price for display (from discounted total / quantity)
+        const unitAmount = qty > 0 
+          ? String(Number(totalAmount) / qty) 
+          : (unit?.amount ?? "0");
 
         const variantTitle = li.variantTitle ?? null;
-        const sizeEU = extractEUSize(variantTitle) ?? extractEUSize(li.title);
+        const productName = li.name ?? "—"; // Use 'name' field (documented)
+        const sizeEU = extractEUSize(variantTitle) ?? extractEUSize(productName);
 
         lineItems.push({
           shopifyOrderId: orderId,
@@ -113,13 +140,13 @@ export async function POST(req: Request) {
           displayFulfillmentStatus,
           customerName,
           lineItemId: li.id,
-          title: li.title ?? "—",
+          title: productName,
           sku: li.sku ?? null,
           variantTitle,
           sizeEU,
           quantity: qty,
-          price: String(unitAmount),
-          totalPrice: String(totalAmount),
+          price: String(unitAmount), // Calculated from discounted total
+          totalPrice: String(totalAmount), // ✅ DISCOUNTED total (real sell price)
           currencyCode,
         });
       }
