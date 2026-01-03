@@ -544,9 +544,31 @@ export default function Home() {
         currencyCode: o.currencyCode,
       }));
 
-      // Run matching
+      // 🔒 CRITICAL: Filter out already-matched StockX orders
+      let availableStockX = normalizedStockX;
+      try {
+        const dbRes = await fetch("/api/db/matches");
+        if (dbRes.ok) {
+          const dbData = await dbRes.json();
+          const usedStockXNumbers = new Set(
+            dbData.matches.map((m: any) => m.stockxOrderNumber)
+          );
+          
+          const beforeCount = normalizedStockX.length;
+          availableStockX = normalizedStockX.filter(
+            (order) => !usedStockXNumbers.has(order.stockxOrderNumber)
+          );
+          
+          console.log(`🔒 Filtered out ${beforeCount - availableStockX.length} already-matched StockX orders`);
+          console.log(`✅ ${availableStockX.length} StockX orders available for matching`);
+        }
+      } catch (err) {
+        console.warn("Could not fetch DB matches, showing all StockX orders:", err);
+      }
+
+      // Run matching (only with AVAILABLE StockX orders)
       const results = items.map((item: ShopifyLineItem) =>
-        matchShopifyToStockX(item, normalizedStockX)
+        matchShopifyToStockX(item, availableStockX)
       );
 
       setMatchResults(results);
