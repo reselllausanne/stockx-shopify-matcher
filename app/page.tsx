@@ -1058,23 +1058,45 @@ export default function Home() {
     const isEssentialHoodie = shopifyItem.sku && 
       ["FWUG24K102NA", "FWUG24K101NA", "FWUG24K103NA"].includes(shopifyItem.sku);
 
-    const autoSupplierCost = isEssentialHoodie ? 42 : null;
-    
-    const promptMessage = isLiquidation
-      ? `💰 Liquidation Order: ${shopifyItem.title}\n\nEnter your buy price (supplier cost) in CHF:`
-      : isEssentialHoodie
-      ? `💰 Essential Hoodie: ${shopifyItem.title}\n\nAuto-set cost to 42 CHF or enter custom:`
-      : `💰 Manual Cost Entry: ${shopifyItem.title}\n\nEnter supplier cost in CHF:`;
+    let supplierCost: number;
 
-    const defaultValue = autoSupplierCost ? String(autoSupplierCost) : "";
-    const supplierCostInput = prompt(promptMessage, defaultValue);
+    if (isEssentialHoodie) {
+      // Auto-apply 42 CHF for Essential Hoodies
+      const autoConfirm = confirm(
+        `💰 Essential Hoodie Detected!\n\n` +
+        `Product: ${shopifyItem.title}\n` +
+        `SKU: ${shopifyItem.sku}\n\n` +
+        `Auto-apply 42 CHF supplier cost?\n\n` +
+        `Click OK to auto-apply 42 CHF\n` +
+        `Click Cancel to enter custom cost`
+      );
 
-    if (!supplierCostInput) return;
+      if (autoConfirm) {
+        supplierCost = 42;
+      } else {
+        const customInput = prompt(`Enter custom supplier cost for ${shopifyItem.title}:`, "42");
+        if (!customInput) return;
+        supplierCost = parseFloat(customInput);
+        if (isNaN(supplierCost) || supplierCost < 0) {
+          alert("❌ Invalid cost. Please enter a positive number.");
+          return;
+        }
+      }
+    } else {
+      // Liquidation or other manual cost
+      const promptMessage = isLiquidation
+        ? `💰 Liquidation Order: ${shopifyItem.title}\n\nEnter your buy price (supplier cost) in CHF:`
+        : `💰 Manual Cost Entry: ${shopifyItem.title}\n\nEnter supplier cost in CHF:`;
 
-    const supplierCost = parseFloat(supplierCostInput);
-    if (isNaN(supplierCost) || supplierCost < 0) {
-      alert("❌ Invalid cost. Please enter a positive number.");
-      return;
+      const supplierCostInput = prompt(promptMessage, "");
+
+      if (!supplierCostInput) return;
+
+      supplierCost = parseFloat(supplierCostInput);
+      if (isNaN(supplierCost) || supplierCost < 0) {
+        alert("❌ Invalid cost. Please enter a positive number.");
+        return;
+      }
     }
 
     const revenue = parseFloat(shopifyItem.totalPrice);
@@ -2174,7 +2196,9 @@ export default function Home() {
               {matchResults.map((result, idx) => {
                 const shopify = result.shopifyItem;
                 const match = result.bestMatch;
-                const isLiquidation = shopify.title.trim().endsWith("%");
+                const isLiquidation = /%/.test(shopify.title);
+                const isEssentialHoodie = shopify.sku && 
+                  ["FWUG24K102NA", "FWUG24K101NA", "FWUG24K103NA"].includes(shopify.sku);
 
                 return (
                   <div
@@ -2182,6 +2206,8 @@ export default function Home() {
                     className={`border rounded-lg p-4 ${
                       isLiquidation
                         ? "border-purple-300 bg-purple-50"
+                        : isEssentialHoodie
+                        ? "border-indigo-300 bg-indigo-50"
                         : match?.overThreshold
                         ? "border-yellow-300 bg-yellow-50"
                         : match?.confidence === "high"
@@ -2412,11 +2438,20 @@ export default function Home() {
                           })()
                         ) : isLiquidation ? (
                           <div className="text-purple-700 text-center py-4">
-                            <p className="text-sm font-semibold">🛍️ Liquidation Product (Manual Match Only)</p>
+                            <p className="text-sm font-semibold">🛍️ Liquidation Product</p>
                             <p className="text-xs mt-2">
                               This is an in-stock liquidation item.
                               <br />
-                              Auto-matching disabled - use manual selection below if needed.
+                              Click below to add to DB with your buy price.
+                            </p>
+                            <button
+                              onClick={() => createManualCostEntry(shopify)}
+                              className="mt-3 w-full px-4 py-2 bg-purple-600 text-white text-sm font-medium rounded hover:bg-purple-700"
+                            >
+                              💰 Add to DB with Manual Cost
+                            </button>
+                            <p className="text-xs mt-2 text-gray-600">
+                              Or enter StockX order # manually if you want to link:
                             </p>
                             <input
                               type="text"
@@ -2427,9 +2462,29 @@ export default function Home() {
                                   [shopify.lineItemId]: e.target.value,
                                 })
                               }
-                              placeholder="Enter StockX order # manually"
+                              placeholder="Enter StockX order # (optional)"
                               className="mt-2 w-full px-2 py-1 border rounded text-xs font-mono"
                             />
+                          </div>
+                        ) : isEssentialHoodie ? (
+                          <div className="text-indigo-700 text-center py-4">
+                            <p className="text-sm font-semibold">👕 Essential Hoodie Detected</p>
+                            <p className="text-xs mt-2">
+                              SKU: {shopify.sku}
+                              <br />
+                              Auto-cost: 42 CHF (no fulfillment needed)
+                            </p>
+                            <button
+                              onClick={() => createManualCostEntry(shopify)}
+                              className="mt-3 w-full px-4 py-2 bg-indigo-600 text-white text-sm font-medium rounded hover:bg-indigo-700"
+                            >
+                              ✅ Add to DB (Auto 42 CHF)
+                            </button>
+                            <p className="text-xs mt-3 text-gray-600">
+                              This will add to dashboard with 42 CHF supplier cost.
+                              <br />
+                              No StockX matching or fulfillment.
+                            </p>
                           </div>
                         ) : match ? (
                           <>

@@ -220,6 +220,56 @@ export async function POST(req: Request) {
         where: { shopifyLineItemId: shopifyItem.lineItemId },
       });
 
+      // 🎯 AUTO-ADD: Essential Hoodies with 42 CHF cost
+      if (!existingInDb) {
+        const isEssentialHoodie = shopifyItem.sku && 
+          ["FWUG24K102NA", "FWUG24K101NA", "FWUG24K103NA"].includes(shopifyItem.sku);
+
+        if (isEssentialHoodie) {
+          const supplierCost = 42;
+          const revenue = parseFloat(shopifyItem.totalPrice) || 0;
+          const marginAmount = revenue - supplierCost;
+          const marginPercent = revenue > 0 ? (marginAmount / revenue) * 100 : 0;
+
+          console.log(`[SYNC] 👕 Essential Hoodie detected: ${shopifyItem.title} (SKU: ${shopifyItem.sku})`);
+          console.log(`[SYNC] 💰 Auto-creating with 42 CHF cost (Revenue: ${revenue.toFixed(2)}, Margin: ${marginAmount.toFixed(2)} / ${marginPercent.toFixed(1)}%)`);
+
+          await prisma.orderMatch.create({
+            data: {
+              shopifyOrderId: shopifyItem.shopifyOrderId,
+              shopifyOrderName: shopifyItem.orderName,
+              shopifyLineItemId: shopifyItem.lineItemId,
+              shopifyProductTitle: shopifyItem.title,
+              shopifySku: shopifyItem.sku || null,
+              shopifySizeEU: shopifyItem.sizeEU || null,
+              shopifyTotalPrice: revenue,
+              shopifyCurrencyCode: shopifyItem.currencyCode || "CHF",
+              stockxOrderNumber: `MANUAL-ESS-${shopifyItem.lineItemId.slice(-8)}`,
+              stockxProductName: shopifyItem.title,
+              stockxSizeEU: shopifyItem.sizeEU || null,
+              stockxSkuKey: shopifyItem.sku || null,
+              matchConfidence: "manual",
+              matchScore: 100,
+              matchType: "MANUAL_COST",
+              matchReasons: JSON.stringify(["Essential Hoodie (auto 42 CHF)"]),
+              timeDiffHours: 0,
+              stockxStatus: "MANUAL_COST_ONLY",
+              stockxEstimatedDelivery: null,
+              supplierCost,
+              marginAmount,
+              marginPercent,
+              manualCostOverride: supplierCost,
+              shopifyMetafieldsSynced: false,
+              lastStatusCheck: new Date(),
+            },
+          });
+
+          console.log(`[SYNC] ✅ Essential Hoodie added to DB`);
+          newMatchCount++;
+          continue; // Skip matching algorithm
+        }
+      }
+
       if (existingInDb) {
         // ✅ Already matched in DB - update price if changed
         console.log(`[SYNC] 📋 Already matched in DB: ${shopifyItem.orderName} → ${existingInDb.stockxOrderNumber}`);
