@@ -1,253 +1,236 @@
-# 🔑 StockX Token Refresh Guide
+# 🔐 StockX Token Refresh Guide
 
-## 🚨 Problem: PerimeterX Bot Detection
+## 🎯 Overview
 
-StockX uses **PerimeterX (HUMAN Security)** which blocks automated browser logins by detecting:
-- Headless browser fingerprints
-- Non-human behavior patterns
-- Automated scripts
+This app supports **two methods** for automated StockX token refresh:
 
-**Error you see**: "Appuyez et maintenez pour confirmer que vous êtes un humain"
+1. **🍪 Cookie-Based (RECOMMENDED)** - Works reliably, bypasses bot detection
+2. **🤖 Automated Login** - Direct login automation (blocked by PerimeterX currently)
 
 ---
 
-## ✅ **SOLUTION: Cookie-Based Authentication (RECOMMENDED)**
+## ✅ Method 1: Cookie-Based Token Refresh (RECOMMENDED)
 
-Instead of automating the login, we **reuse cookies** from your manual login session.
+### **Why This Works**:
+- Bypasses login form entirely
+- Uses your real browser session
+- No bot detection issues
+- Only needs manual setup once every ~30 days
 
-### **How It Works**:
-1. You login manually in Chrome (once)
-2. Export your cookies
-3. App reuses cookies → **bypasses login completely!**
-4. No bot detection, 100% reliable
+### **Setup Instructions**:
 
-### **Step-by-Step Instructions**:
+#### **Step 1: Export Cookies**
 
-#### **1️⃣ Login to StockX**
+1. Open **Chrome/Firefox** (not in incognito!)
+2. Navigate to: https://pro.stockx.com/purchasing/orders
+3. **Log in normally** (if not already logged in)
+4. Press **F12** to open Developer Tools
+5. Go to **Console** tab
+6. Paste this script and press **Enter**:
+
+```javascript
+// Export StockX cookies
+(function() {
+  const cookies = document.cookie.split('; ').map(c => {
+    const [name, value] = c.split('=');
+    return {
+      name,
+      value: decodeURIComponent(value),
+      domain: '.stockx.com',
+      path: '/',
+      secure: true,
+      httpOnly: false,
+      sameSite: 'Lax'
+    };
+  });
+  
+  console.log('📦 Cookies exported! Copy the text below:');
+  console.log('─'.repeat(60));
+  console.log(JSON.stringify(cookies, null, 2));
+  console.log('─'.repeat(60));
+  
+  // Auto-download
+  const blob = new Blob([JSON.stringify(cookies, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'stockx-cookies.json';
+  a.click();
+  URL.revokeObjectURL(url);
+  
+  console.log('✅ File downloaded as stockx-cookies.json');
+})();
+```
+
+7. A file `stockx-cookies.json` will download automatically
+8. **Copy this file** to your project root:
+   ```bash
+   cp ~/Downloads/stockx-cookies.json "/Users/theomanzinali/Code scrapping price /"
+   ```
+
+#### **Step 2: Test Locally**
+
 ```bash
-# Open Chrome and go to:
-https://pro.stockx.com/purchasing/orders
+# Make sure cookies file exists
+ls -la stockx-cookies.json
 
-# Login normally with your credentials
+# Restart dev server
+npm run dev
 ```
 
-#### **2️⃣ Export Cookies**
-```bash
-# In Chrome:
-# 1. Press F12 (open DevTools)
-# 2. Go to "Console" tab
-# 3. Copy-paste the entire content of: export-stockx-cookies.js
-# 4. Press Enter
-# 5. Cookies will be copied to clipboard
-```
+1. Open http://localhost:3000
+2. Click **"🍪 Via Cookies"** button
+3. Enter your `CRON_SECRET` (from `.env.local`)
+4. Click **Refresh**
 
-#### **3️⃣ Save Cookies File**
-```bash
-# In your project root, create:
-stockx-cookies.json
-
-# Paste the clipboard content (the JSON array)
-```
-
-Example `stockx-cookies.json`:
-```json
-[
-  {
-    "name": "_pxvid",
-    "value": "abc123...",
-    "domain": ".stockx.com",
-    "path": "/",
-    "expires": 1767999999,
-    "httpOnly": false,
-    "secure": true,
-    "sameSite": "Lax"
-  },
-  {
-    "name": "stockx_session",
-    "value": "xyz789...",
-    "domain": ".stockx.com",
-    "path": "/",
-    "expires": 1767999999,
-    "httpOnly": true,
-    "secure": true,
-    "sameSite": "Lax"
-  }
-]
-```
-
-#### **4️⃣ Test Cookie-Based Refresh**
-
-**In your app** (localhost:3000):
-- Click **"🍪 Refresh via Cookies"** button
-- Should see: ✅ "Token refreshed successfully!"
-
-**Via API directly**:
-```bash
-curl -X POST http://localhost:3000/api/auth/refresh-stockx-token-cookies \
-  -H "Content-Type: application/json" \
-  -d '{"cronSecret":"test123"}'
-```
-
-#### **5️⃣ Automate on Vercel**
-
-Update `vercel.json`:
+**Expected Output**:
 ```json
 {
-  "crons": [
-    {
-      "path": "/api/cron/refresh-token-cookies",
-      "schedule": "0 */10 * * *"
-    }
-  ]
+  "success": true,
+  "message": "Token refreshed successfully (via cookies)!",
+  "tokenPreview": "eyJhbGciOiJSUzI1NiIs...",
+  "expiresAt": "2026-01-04T12:00:00.000Z",
+  "method": "cookies"
 }
 ```
 
-Create `/app/api/cron/refresh-token-cookies/route.ts`:
-```typescript
-import { NextResponse } from "next/server";
+#### **Step 3: Deploy to Vercel**
 
-export async function GET() {
-  const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || "http://localhost:3000";
-  
-  const response = await fetch(`${baseUrl}/api/auth/refresh-stockx-token-cookies`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ cronSecret: process.env.CRON_SECRET }),
-  });
+1. **Upload cookies to Vercel**:
+   - Go to Vercel Dashboard → Your Project → Storage
+   - Or use Vercel Blob/KV to store cookies
+   - **OR** Base64 encode cookies and store as env var:
 
-  const data = await response.json();
-  return NextResponse.json(data);
-}
-```
-
----
-
-## 📊 Cookie vs Login Comparison
-
-| Method | Pros | Cons | Reliability |
-|--------|------|------|-------------|
-| **🍪 Cookies** | ✅ No bot detection<br>✅ Fast (3-5s)<br>✅ 100% success | ⚠️ Expires ~7 days<br>⚠️ Manual refresh needed | ⭐⭐⭐⭐⭐ |
-| **🔓 Login** | ✅ No manual steps<br>✅ Fully automated | ❌ Bot detection<br>❌ PerimeterX blocks<br>❌ Slow (30-60s) | ⭐⭐ (blocked) |
-
----
-
-## 🔄 Cookie Expiration Handling
-
-Cookies typically expire after **7 days**. When they expire:
-
-### **Option A: Manual Refresh (Simple)**
-1. Get notification/error
-2. Login manually
-3. Re-export cookies
-4. Deploy
-
-### **Option B: Auto-Fallback (Advanced)**
-```typescript
-// Try cookie-based first
-const cookieResult = await refreshViaCookies();
-
-if (cookieResult.error?.includes("expired")) {
-  // Send email/Slack notification
-  await notifyAdmin("StockX cookies expired - please refresh");
-}
-```
-
-### **Option C: Cookie Rotation (Enterprise)**
-- Store cookies from multiple accounts
-- Rotate on expiry
-- Auto-detect and switch
-
----
-
-## 🐛 Troubleshooting
-
-### **"Missing cookies file"**
 ```bash
-# Make sure file exists:
-ls stockx-cookies.json
+# Encode cookies
+cat stockx-cookies.json | base64 > stockx-cookies.b64
 
-# Should show: stockx-cookies.json
+# Add to Vercel env vars:
+STOCKX_COOKIES_BASE64=<paste contents of stockx-cookies.b64>
 ```
 
-### **"Cookies expired"**
-Browser redirects to login page → cookies no longer valid.
+2. **Update the cookies route** to read from env var:
+   - Modify `/app/api/auth/refresh-stockx-token-cookies/route.ts`
+   - Read `process.env.STOCKX_COOKIES_BASE64`
+   - Decode and parse cookies
 
-**Fix**: Login manually and re-export.
-
-### **"No token captured"**
-Cookies are valid but no API calls made.
-
-**Fix**: Wait longer (increase delay) or navigate to different page:
-```typescript
-await delay(8000); // Wait 8 seconds instead of 5
-```
-
-### **"401 Unauthorized"**
-Wrong CRON_SECRET.
-
-**Fix**: Check `.env.local`:
-```bash
-CRON_SECRET=your-secret-here
-```
+3. **Update Vercel cron** to use cookie method:
+   - Modify `/app/api/cron/refresh-token/route.ts`
+   - Change endpoint to `/api/auth/refresh-stockx-token-cookies`
 
 ---
 
-## 🚀 Deployment Checklist
+## 🤖 Method 2: Automated Login (Currently Blocked by PerimeterX)
 
-- [ ] `stockx-cookies.json` created locally
-- [ ] `.gitignore` includes `stockx-cookies.json` (don't commit!)
-- [ ] Tested locally: **🍪 Refresh via Cookies** button works
-- [ ] Upload cookies to Vercel:
-  ```bash
-  # Option 1: Use Vercel Environment Variables
-  # In Vercel dashboard: Add STOCKX_COOKIES_JSON = <paste contents>
-  
-  # Option 2: Use Vercel Blob Storage (recommended)
-  # Upload via Vercel CLI or dashboard
-  ```
-- [ ] Updated cron job to use cookie endpoint
-- [ ] Test cron job manually in Vercel dashboard
-- [ ] Set calendar reminder to refresh cookies every 6 days
+### **Why This Doesn't Work Yet**:
+- PerimeterX bot detection at network level
+- Blocks Puppeteer before page loads
+- Manual stealth techniques not sufficient
 
----
+### **What We Tried**:
+- ✅ Manual stealth (hide `navigator.webdriver`, mock plugins)
+- ✅ Realistic user-agent and viewport
+- ✅ Delays and human-like typing
+- ❌ Still blocked by TLS/HTTP2 fingerprinting
 
-## 📅 Maintenance Schedule
+### **Potential Solutions** (Advanced):
 
-| Task | Frequency | Time Required |
-|------|-----------|---------------|
-| Refresh cookies | Every 6-7 days | 2 minutes |
-| Verify token working | Daily (auto) | 0 minutes |
-| Check logs | Weekly | 5 minutes |
+#### **Option A: Residential Proxies**
+- Use proxy services like:
+  - Bright Data (formerly Luminati)
+  - Oxylabs
+  - SmartProxy
+- Rotate IPs to avoid fingerprinting
+- **Cost**: $300-500/month for reliable service
 
----
+#### **Option B: Playwright with Firefox**
+- Switch from Puppeteer (Chromium) to Playwright with Firefox
+- Different fingerprint
+- Might avoid detection temporarily
 
-## ❓ FAQ
-
-### **Q: Why not use stealth plugins?**
-**A**: PerimeterX is very sophisticated. Even with stealth plugins, it often detects automation. Cookies bypass this entirely.
-
-### **Q: Can I automate cookie extraction?**
-**A**: Not reliably. Chrome/Puppeteer sandbox restrictions prevent reading cookies across sessions. Manual export is the most reliable method.
-
-### **Q: What if I have 2FA enabled?**
-**A**: Cookies work perfectly with 2FA! Just login with 2FA manually, then export cookies.
-
-### **Q: Will this work on Vercel?**
-**A**: Yes! Just store cookies as:
-- Environment variable (small)
-- Vercel Blob Storage (recommended)
-- External secret manager (enterprise)
-
-### **Q: How long does cookie refresh take?**
-**A**: 3-5 seconds (vs 30-60s for login automation)
+#### **Option C: Puppeteer Real Browser**
+- Use `puppeteer-real-browser` package
+- Patches Chromium to remove automation signals
+- More resource-intensive
 
 ---
 
-## 🎯 Next Steps
+## 🛠️ Current Setup Files
 
-1. **Today**: Export cookies, test locally
-2. **This Week**: Deploy to Vercel with cookie-based refresh
-3. **Ongoing**: Refresh cookies every 6 days (2 min task)
+| File | Purpose | Status |
+|------|---------|--------|
+| `/app/api/auth/refresh-stockx-token/route.ts` | Automated login (Puppeteer) | ⚠️ Blocked |
+| `/app/api/auth/refresh-stockx-token-cookies/route.ts` | Cookie-based refresh | ✅ Ready |
+| `/app/api/cron/refresh-token/route.ts` | Vercel cron job | ✅ Ready |
+| `vercel.json` | Cron schedule (every 10 hours) | ✅ Configured |
+| `export-stockx-cookies.js` | Browser script to export cookies | ✅ Ready |
 
-**Questions?** Check logs in `/debug/` folder or terminal output.
+---
 
+## 🔄 Cookie Refresh Frequency
+
+**How often do cookies expire?**
+- StockX session cookies typically last **30-90 days**
+- You'll need to manually re-export cookies when they expire
+
+**How to automate cookie refresh?**
+- Set up a monthly reminder to re-export cookies
+- Or implement a "login popup" in your app (see below)
+
+---
+
+## 💡 Future Enhancement: Manual Login Popup
+
+If you want a **semi-automated** solution:
+
+1. **App detects expired token**
+2. **Shows popup**: "Please log in to StockX"
+3. **Opens new window**: `https://accounts.stockx.com/login`
+4. **User logs in manually** (bypasses bot detection)
+5. **App captures token** from redirect/network
+6. **Token saved to DB**
+
+This gives you the best of both worlds:
+- ✅ No monthly cookie export
+- ✅ Bypasses bot detection
+- ⚠️ Requires manual interaction every 10 hours
+
+---
+
+## 🚀 Recommended Path Forward
+
+### **Phase 1: Use Cookie Method (NOW)**
+1. Export cookies manually
+2. Test locally with "🍪 Via Cookies" button
+3. Deploy to Vercel with cookies in env var
+4. Set reminder to refresh cookies monthly
+
+### **Phase 2: Monitor & Optimize**
+1. Track token refresh success rate
+2. Set up alerts when token expires
+3. Consider manual popup if cookies expire frequently
+
+### **Phase 3: Explore Advanced Solutions (LATER)**
+1. Test Playwright with Firefox
+2. Evaluate proxy costs vs. manual effort
+3. Consider `puppeteer-real-browser` if budget allows
+
+---
+
+## 📞 Support
+
+If you encounter issues:
+
+1. **Check debug files**: `/debug/*.html` and `/debug/*.png`
+2. **Check Vercel logs**: Real-time logs in Vercel dashboard
+3. **Test locally first**: Always verify locally before deploying
+4. **Cookie expiration**: Re-export cookies if refresh fails
+
+---
+
+## 🔒 Security Notes
+
+- ✅ Cookies stored as env vars (encrypted)
+- ✅ CRON_SECRET protects refresh endpoints
+- ✅ Token stored in Postgres (not exposed)
+- ⚠️ Don't commit `stockx-cookies.json` to git (already in `.gitignore`)

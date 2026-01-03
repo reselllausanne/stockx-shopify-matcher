@@ -4,12 +4,24 @@ import { setTimeout as delay } from "timers/promises";
 import fs from "fs";
 import path from "path";
 
+export const runtime = "nodejs"; // Force Node.js runtime for Puppeteer
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
+// Environment detection for Vercel vs Local
 async function getBrowser() {
-  const puppeteerCore = await import("puppeteer");
-  return puppeteerCore.default;
+  const isVercel = !!process.env.VERCEL;
+  
+  if (isVercel) {
+    console.log("[BROWSER] Environment: Vercel (using puppeteer-core + chromium-min)");
+    const puppeteerCore = (await import("puppeteer-core")).default;
+    const chromium = (await import("@sparticuz/chromium-min")).default;
+    return { puppeteer: puppeteerCore, chromium };
+  } else {
+    console.log("[BROWSER] Environment: Local (using standard puppeteer)");
+    const puppeteer = (await import("puppeteer")).default;
+    return { puppeteer, chromium: null };
+  }
 }
 
 export async function POST(req: Request) {
@@ -28,42 +40,85 @@ export async function POST(req: Request) {
 
     console.log("[TOKEN REFRESH] 🍪 Starting cookie-based token refresh...");
 
-    // Path to cookies file
-    const cookiesPath = path.join(process.cwd(), "stockx-cookies.json");
-    
-    if (!fs.existsSync(cookiesPath)) {
-      return NextResponse.json(
-        { 
-          error: "Missing cookies file",
-          message: "Please login manually and export cookies first",
-          instructions: [
-            "1. Open Chrome and login to StockX Pro",
-            "2. Press F12 → Console tab",
-            "3. Paste: copy(JSON.stringify(document.cookie.split('; ').map(c => {const [name, ...v] = c.split('='); return {name, value: v.join('='), domain: '.stockx.com'}})))",
-            "4. Save clipboard to: stockx-cookies.json in project root"
-          ]
-        },
-        { status: 400 }
-      );
-    }
+    let cookies;
 
-    // Load cookies
-    const cookiesData = fs.readFileSync(cookiesPath, "utf8");
-    const cookies = JSON.parse(cookiesData);
+    // Try to load cookies from environment variable first (for Vercel)
+    if (process.env.STOCKX_COOKIES_BASE64) {
+      console.log("[TOKEN REFRESH] 📦 Loading cookies from env var (Vercel)...");
+      try {
+        const cookiesJson = Buffer.from(process.env.STOCKX_COOKIES_BASE64, 'base64').toString('utf-8');
+        cookies = JSON.parse(cookiesJson);
+        console.log("[TOKEN REFRESH] ✅ Loaded cookies from STOCKX_COOKIES_BASE64");
+      } catch (error) {
+        console.error("[TOKEN REFRESH] ❌ Failed to parse STOCKX_COOKIES_BASE64:", error);
+        return NextResponse.json(
+          { 
+            error: "Invalid STOCKX_COOKIES_BASE64",
+            message: "Base64-encoded cookies in env var are malformed",
+            details: error instanceof Error ? error.message : String(error)
+          },
+          { status: 400 }
+        );
+      }
+    } else {
+      // Fallback to file (for local development)
+      console.log("[TOKEN REFRESH] 📁 Loading cookies from file (local)...");
+      const cookiesPath = path.join(process.cwd(), "stockx-cookies.json");
+      
+      if (!fs.existsSync(cookiesPath)) {
+        return NextResponse.json(
+          { 
+            error: "Missing cookies",
+            message: "No cookies found (neither env var nor file)",
+            instructions: [
+              "LOCAL: Export cookies to stockx-cookies.json in project root",
+              "VERCEL: Set STOCKX_COOKIES_BASE64 environment variable",
+              "",
+              "To export cookies:",
+              "1. Open https://pro.stockx.com/purchasing/orders in Chrome",
+              "2. Press F12 → Console tab",
+              "3. Run: node export-stockx-cookies.js",
+              "4. OR paste the export script from the Console",
+              "",
+              "To create env var for Vercel:",
+              "cat stockx-cookies.json | base64 | pbcopy",
+              "Then add STOCKX_COOKIES_BASE64=<paste> in Vercel dashboard"
+            ]
+          },
+          { status: 400 }
+        );
+      }
+
+      const cookiesData = fs.readFileSync(cookiesPath, "utf8");
+      cookies = JSON.parse(cookiesData);
+      console.log("[TOKEN REFRESH] ✅ Loaded cookies from file");
+    }
 
     console.log(`[TOKEN REFRESH] ✅ Loaded ${cookies.length} cookies`);
 
-    // Launch browser
-    const puppeteer = await getBrowser();
-    browser = await puppeteer.launch({
-      headless: true,
-      args: [
-        '--no-sandbox',
-        '--disable-setuid-sandbox',
-        '--disable-dev-shm-usage',
-        '--disable-gpu',
-      ],
-    });
+    // Launch browser (environment-aware)
+    const { puppeteer, chromium } = await getBrowser();
+    const isVercel = !!process.env.VERCEL;
+    
+    console.log("[TOKEN REFRESH] 🌐 Launching browser...");
+    browser = await puppeteer.launch(
+      isVercel
+        ? {
+            args: chromium!.args,
+            defaultViewport: chromium!.defaultViewport,
+            executablePath: await chromium!.executablePath(),
+            headless: chromium!.headless,
+          }
+        : {
+            headless: "new",
+            args: [
+              '--no-sandbox',
+              '--disable-setuid-sandbox',
+              '--disable-dev-shm-usage',
+              '--disable-gpu',
+            ],
+          }
+    );
 
     const page = await browser.newPage();
 

@@ -21,9 +21,18 @@ export async function GET(request: Request) {
 
     console.log("[CRON] 🕐 Token refresh cron job triggered");
 
-    // Call the token refresh API
+    // Call the token refresh API (using cookie-based method)
     const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || "http://localhost:3000";
-    const response = await fetch(`${baseUrl}/api/auth/refresh-stockx-token`, {
+    
+    // Use cookie-based method if STOCKX_COOKIES_BASE64 is set, else try automated login
+    const useCookieMethod = !!process.env.STOCKX_COOKIES_BASE64;
+    const endpoint = useCookieMethod 
+      ? "/api/auth/refresh-stockx-token-cookies" 
+      : "/api/auth/refresh-stockx-token";
+    
+    console.log(`[CRON] 🔄 Using ${useCookieMethod ? "cookie-based" : "automated login"} method`);
+    
+    const response = await fetch(`${baseUrl}${endpoint}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ cronSecret: process.env.CRON_SECRET }),
