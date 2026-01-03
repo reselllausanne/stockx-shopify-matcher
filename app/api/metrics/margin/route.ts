@@ -21,33 +21,21 @@ export async function GET(request: NextRequest) {
     const startDate = new Date();
     startDate.setDate(endDate.getDate() - days);
 
-    // Fetch metrics directly from OrderMatch
-    // Note: marginAmount and marginPercent are NOT nullable in schema, so no null filter needed
-    const matches = await prisma.orderMatch.findMany({
+    // Fetch metrics from OrderMetric (uses Shopify order creation date, not match date!)
+    // This ensures dashboard shows sales by when customer placed order, not when we matched it
+    const metrics = await prisma.orderMetric.findMany({
       where: {
         createdAt: {
           gte: startDate,
           lte: endDate,
         },
-        // Only get orders with actual margin data (exclude 0 or negative)
-        marginAmount: { gt: 0 },
       },
       orderBy: {
         createdAt: "asc",
       },
-      select: {
-        shopifyOrderId: true,
-        createdAt: true,
-        shopifyTotalPrice: true,
-        marginAmount: true,
-        marginPercent: true,
-        shopifyCurrencyCode: true,
-        shopifyOrderName: true,
-        stockxOrderNumber: true,
-      },
     });
 
-    if (matches.length === 0) {
+    if (metrics.length === 0) {
       return NextResponse.json({
         data: [],
         totals: {
@@ -74,9 +62,9 @@ export async function GET(request: NextRequest) {
     let totalSales = 0;
     let totalMargin = 0;
 
-    // Process each match
-    for (const match of matches) {
-      const dateKey = match.createdAt.toISOString().split("T")[0]; // YYYY-MM-DD
+    // Process each metric (grouped by Shopify order creation date)
+    for (const metric of metrics) {
+      const dateKey = metric.createdAt.toISOString().split("T")[0]; // YYYY-MM-DD
 
       if (!dailyMetrics.has(dateKey)) {
         dailyMetrics.set(dateKey, {
@@ -88,13 +76,13 @@ export async function GET(request: NextRequest) {
       }
 
       const day = dailyMetrics.get(dateKey)!;
-      day.sales += match.shopifyTotalPrice;
-      day.marginChf += match.marginAmount;
-      day.margins.push(match.marginPercent);
+      day.sales += metric.grossSales;
+      day.marginChf += metric.marginChf;
+      day.margins.push(metric.marginPct);
       day.count += 1;
 
-      totalSales += match.shopifyTotalPrice;
-      totalMargin += match.marginAmount;
+      totalSales += metric.grossSales;
+      totalMargin += metric.marginChf;
     }
 
     // Convert to array and calculate medians
