@@ -50,6 +50,7 @@ query OrdersForMatching($first: Int!, $query: String!) {
             node {
               id
               name
+              title
               sku
               quantity
               variantTitle
@@ -141,9 +142,17 @@ export async function POST(req: Request) {
         const unitAmount = qty > 0 ? (realLineTotal / qty).toFixed(2) : totalAmount;
 
         const variantTitle = li.variantTitle ?? null;
-        const productName = li.name ?? "—";
+        const productName = li.name ?? li.title ?? "Unknown Product";
         const sizeEU =
           extractEUSize(variantTitle) ?? extractEUSize(productName) ?? null;
+
+        // Debug missing name
+        if (!li.name && !li.title) {
+          console.warn(`[SHOPIFY] Line item ${li.id} missing name/title`, {
+            sku: li.sku,
+            variantTitle: li.variantTitle,
+          });
+        }
 
         lineItems.push({
           shopifyOrderId: orderId,
