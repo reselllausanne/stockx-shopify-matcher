@@ -1203,9 +1203,11 @@ export default function Home() {
           <nav className="flex space-x-4">
             <a
               href="/dashboard"
+              target="_blank"
+              rel="noopener noreferrer"
               className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors font-medium"
             >
-              📊 Margin Dashboard
+              📊 Margin Dashboard ↗
             </a>
             <span className="text-gray-400">|</span>
             <span className="text-gray-600 py-2">
@@ -1635,9 +1637,11 @@ export default function Home() {
 
             <a
               href="/dashboard"
+              target="_blank"
+              rel="noopener noreferrer"
               className="flex items-center justify-center gap-2 px-4 py-3 bg-orange-600 text-white rounded-lg hover:bg-orange-700 font-medium shadow"
             >
-              📊 View Dashboard
+              📊 View Dashboard ↗
             </a>
           </div>
 

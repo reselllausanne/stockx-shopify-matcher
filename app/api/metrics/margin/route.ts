@@ -21,17 +21,16 @@ export async function GET(request: NextRequest) {
     const startDate = new Date();
     startDate.setDate(endDate.getDate() - days);
 
-    // Fetch metrics directly from OrderMatch (no need for separate table!)
+    // Fetch metrics directly from OrderMatch
+    // Note: marginAmount and marginPercent are NOT nullable in schema, so no null filter needed
     const matches = await prisma.orderMatch.findMany({
       where: {
         createdAt: {
           gte: startDate,
           lte: endDate,
         },
-        NOT: [
-          { marginAmount: null },
-          { marginPercent: null },
-        ],
+        // Only get orders with actual margin data (exclude 0 or negative)
+        marginAmount: { gt: 0 },
       },
       orderBy: {
         createdAt: "asc",
