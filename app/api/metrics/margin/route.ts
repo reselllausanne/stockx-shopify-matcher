@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/app/lib/prisma";
 
-export const runtime = "nodejs"; // Force Node.js runtime
+export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function GET(request: NextRequest) {
@@ -21,20 +21,32 @@ export async function GET(request: NextRequest) {
     const startDate = new Date();
     startDate.setDate(endDate.getDate() - days);
 
-    // Fetch metrics in date range
-    const metrics = await prisma.orderMetric.findMany({
+    // Fetch metrics directly from OrderMatch (no need for separate table!)
+    const matches = await prisma.orderMatch.findMany({
       where: {
         createdAt: {
           gte: startDate,
           lte: endDate,
         },
+        marginAmount: { not: null },
+        marginPercent: { not: null },
       },
       orderBy: {
         createdAt: "asc",
       },
+      select: {
+        shopifyOrderId: true,
+        createdAt: true,
+        shopifyTotalPrice: true,
+        marginAmount: true,
+        marginPercent: true,
+        shopifyCurrencyCode: true,
+        shopifyOrderName: true,
+        stockxOrderNumber: true,
+      },
     });
 
-    if (metrics.length === 0) {
+    if (matches.length === 0) {
       return NextResponse.json({
         data: [],
         totals: {
@@ -61,9 +73,9 @@ export async function GET(request: NextRequest) {
     let totalSales = 0;
     let totalMargin = 0;
 
-    // Process each metric
-    for (const metric of metrics) {
-      const dateKey = metric.createdAt.toISOString().split("T")[0]; // YYYY-MM-DD
+    // Process each match
+    for (const match of matches) {
+      const dateKey = match.createdAt.toISOString().split("T")[0]; // YYYY-MM-DD
 
       if (!dailyMetrics.has(dateKey)) {
         dailyMetrics.set(dateKey, {
@@ -75,13 +87,13 @@ export async function GET(request: NextRequest) {
       }
 
       const day = dailyMetrics.get(dateKey)!;
-      day.sales += metric.grossSales;
-      day.marginChf += metric.marginChf;
-      day.margins.push(metric.marginPct);
+      day.sales += match.shopifyTotalPrice;
+      day.marginChf += match.marginAmount;
+      day.margins.push(match.marginPercent);
       day.count += 1;
 
-      totalSales += metric.grossSales;
-      totalMargin += metric.marginChf;
+      totalSales += match.shopifyTotalPrice;
+      totalMargin += match.marginAmount;
     }
 
     // Convert to array and calculate medians
@@ -125,29 +137,13 @@ export async function GET(request: NextRequest) {
     });
 
   } catch (error) {
-    console.error("[METRICS] Error fetching margin metrics:", error);
-
-    // Always return the actual error message for debugging
+    console.error("[METRICS] Error:", error);
     const errorMessage = error instanceof Error ? error.message : String(error);
     
-    // Check if it's a database error
-    if (errorMessage.includes("no such table")) {
-      return NextResponse.json(
-        { 
-          error: "OrderMetric table not found", 
-          details: errorMessage,
-          hint: "Run database migrations or create test data first"
-        },
-        { status: 503 }
-      );
-    }
-
-    // Return full error details for debugging
     return NextResponse.json(
       { 
-        error: "Failed to fetch margin metrics",
-        details: errorMessage,
-        stack: error instanceof Error ? error.stack : undefined
+        error: "Failed to fetch metrics",
+        details: errorMessage
       },
       { status: 500 }
     );

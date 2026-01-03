@@ -1608,7 +1608,7 @@ export default function Home() {
           </div>
 
           {/* Action Buttons */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
             <button
               onClick={loadFromDB}
               disabled={dbLoading}
@@ -1622,7 +1622,7 @@ export default function Home() {
               disabled={syncLoading || !token}
               className="flex items-center justify-center gap-2 px-4 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed font-medium shadow"
             >
-              {syncLoading ? "Syncing..." : "🔄 Sync New Orders (Auto-Match)"}
+              {syncLoading ? "Syncing..." : "🔄 Sync New Orders"}
             </button>
 
             <button
@@ -1630,8 +1630,15 @@ export default function Home() {
               disabled={statusCheckLoading || !token}
               className="flex items-center justify-center gap-2 px-4 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed font-medium shadow"
             >
-              {statusCheckLoading ? "Checking..." : "✅ Check Status Updates"}
+              {statusCheckLoading ? "Checking..." : "✅ Check Status"}
             </button>
+
+            <a
+              href="/dashboard"
+              className="flex items-center justify-center gap-2 px-4 py-3 bg-orange-600 text-white rounded-lg hover:bg-orange-700 font-medium shadow"
+            >
+              📊 View Dashboard
+            </a>
           </div>
 
           {/* Last Sync Results */}

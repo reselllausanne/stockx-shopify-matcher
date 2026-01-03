@@ -2,17 +2,15 @@
 
 import { useState, useEffect } from "react";
 import {
-  BarChart,
+  ComposedChart,
   Bar,
+  Line,
   XAxis,
   YAxis,
   CartesianGrid,
   Tooltip,
   Legend,
   ResponsiveContainer,
-  LineChart,
-  Line,
-  ComposedChart,
 } from "recharts";
 
 interface DailyMetric {
@@ -38,136 +36,76 @@ interface MetricsResponse {
   };
 }
 
+interface ComparisonItem {
+  orderId: string;
+  orderName: string;
+  createdAt: string;
+  shopify: {
+    stockxOrderNumber: string | null;
+    status: string | null;
+    supplierCost: number | null;
+    marginAmount: number | null;
+    marginPercent: number | null;
+  };
+  db: {
+    stockxOrderNumber: string;
+    status: string;
+    supplierCost: number;
+    marginAmount: number;
+    marginPercent: number;
+  } | null;
+  match: string;
+}
+
 export default function DashboardPage() {
   const [metrics, setMetrics] = useState<MetricsResponse | null>(null);
+  const [comparison, setComparison] = useState<ComparisonItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [days, setDays] = useState(30);
-  const [syncing, setSyncing] = useState(false);
+  const [activeTab, setActiveTab] = useState<"metrics" | "comparison">("metrics");
 
   const fetchMetrics = async (daysParam: number) => {
     try {
       setLoading(true);
       setError(null);
 
-      console.log(`[DASHBOARD] Fetching metrics for ${daysParam} days...`);
       const response = await fetch(`/api/metrics/margin?days=${daysParam}`);
+      const data = await response.json();
 
       if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        console.error("[DASHBOARD] API Error:", response.status, errorData);
-        throw new Error(errorData.error || `API Error: ${response.status}`);
+        setError(data.details || data.error || "Failed to fetch metrics");
+        return;
       }
 
-      const data: MetricsResponse = await response.json();
-      console.log("[DASHBOARD] Received data:", data);
       setMetrics(data);
-    } catch (err) {
-      console.error("[DASHBOARD] Fetch error:", err);
-      setError(err instanceof Error ? err.message : "Network error - is dev server running?");
+    } catch (err: any) {
+      console.error("[DASHBOARD] Error:", err);
+      setError(err.message);
     } finally {
       setLoading(false);
     }
   };
 
-  const syncMetrics = async () => {
+  const fetchComparison = async () => {
     try {
-      setSyncing(true);
-
-      const response = await fetch("/api/metrics/sync", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-      });
-
+      const response = await fetch(`/api/metrics/shopify-comparison?days=${days}`);
       const data = await response.json();
 
-      if (!response.ok) {
-        throw new Error(data.error || "Failed to sync metrics");
+      if (response.ok) {
+        setComparison(data.comparison || []);
       }
-
-      alert(`✅ Metrics synced!\n\n${data.message}\n\nDashboard will refresh automatically.`);
-      await fetchMetrics(days); // Refresh the dashboard
     } catch (err) {
-      console.error("Error syncing metrics:", err);
-      alert(`❌ Sync failed: ${err instanceof Error ? err.message : "Unknown error"}`);
-    } finally {
-      setSyncing(false);
-    }
-  };
-
-  const recoverFromShopify = async () => {
-    try {
-      setSyncing(true);
-
-      const response = await fetch("/api/metrics/recover-from-shopify", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-      });
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.error || "Failed to recover from Shopify");
-      }
-
-      alert(`✅ Recovered from Shopify!\n\n${data.message}\n\nDashboard will refresh automatically.`);
-      await fetchMetrics(days); // Refresh the dashboard
-    } catch (err) {
-      console.error("Error recovering from Shopify:", err);
-      alert(`❌ Recovery failed: ${err instanceof Error ? err.message : "Unknown error"}`);
-    } finally {
-      setSyncing(false);
-    }
-  };
-
-  const createTestData = async () => {
-    try {
-      setSyncing(true);
-
-      // Create some test OrderMetric data
-      const testData = [];
-      const today = new Date();
-
-      // Create 10 days of test data
-      for (let i = 0; i < 10; i++) {
-        const date = new Date(today);
-        date.setDate(today.getDate() - i);
-
-        testData.push({
-          shopifyOrderId: `test-order-${i}`,
-          createdAt: date.toISOString(),
-          grossSales: Math.round((Math.random() * 500 + 100) * 100) / 100, // 100-600 CHF
-          marginChf: Math.round((Math.random() * 100 + 20) * 100) / 100, // 20-120 CHF margin
-          marginPct: Math.round((Math.random() * 20 + 10) * 100) / 100, // 10-30% margin
-          currency: "CHF"
-        });
-      }
-
-      // Call an API to insert this test data
-      const response = await fetch("/api/metrics/test-data", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ testData }),
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.error || "Failed to create test data");
-      }
-
-      alert(`✅ Test data created!\n\nAdded 10 days of sample margin data.\n\nDashboard will refresh automatically.`);
-      await fetchMetrics(days); // Refresh the dashboard
-    } catch (err) {
-      console.error("Error creating test data:", err);
-      alert(`❌ Failed to create test data: ${err instanceof Error ? err.message : "Unknown error"}`);
-    } finally {
-      setSyncing(false);
+      console.error("[COMPARISON] Error:", err);
     }
   };
 
   useEffect(() => {
     fetchMetrics(days);
-  }, [days]);
+    if (activeTab === "comparison") {
+      fetchComparison();
+    }
+  }, [days, activeTab]);
 
   const formatCurrency = (value: number) => {
     return new Intl.NumberFormat("de-CH", {
@@ -180,65 +118,11 @@ export default function DashboardPage() {
     return `${value.toFixed(1)}%`;
   };
 
-  const formatDate = (dateString: string) => {
-    const date = new Date(dateString);
-    return date.toLocaleDateString("en-US", {
-      month: "short",
-      day: "numeric",
-    });
-  };
-
-  if (loading) {
+  if (loading && !metrics) {
     return (
       <div className="min-h-screen bg-gray-50 p-8">
         <div className="max-w-7xl mx-auto">
-          <div className="text-center py-12">
-            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
-            <p className="mt-4 text-gray-600">Loading margin metrics...</p>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  if (error) {
-    return (
-      <div className="min-h-screen bg-gray-50 p-8">
-        <div className="max-w-7xl mx-auto">
-          <div className="bg-red-50 border border-red-200 rounded-lg p-6 text-center">
-            <h2 className="text-xl font-semibold text-red-800 mb-2">
-              Unable to Load Dashboard
-            </h2>
-            <p className="text-red-600 mb-4">{error}</p>
-
-            {error.includes("Network error") || error.includes("fetch") ? (
-              <div className="mb-4 p-4 bg-yellow-50 border border-yellow-200 rounded">
-                <h3 className="font-semibold text-yellow-800 mb-2">🚀 Dev Server Not Running?</h3>
-                <p className="text-yellow-700 text-sm mb-2">
-                  The development server needs to be running to access the dashboard.
-                </p>
-                <code className="bg-gray-100 px-2 py-1 rounded text-sm">
-                  cd "/Users/theomanzinali/Code scrapping price " && npm run dev
-                </code>
-              </div>
-            ) : null}
-
-            <div className="space-x-2">
-              <button
-                onClick={() => fetchMetrics(days)}
-                className="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700"
-              >
-                Try Again
-              </button>
-              <button
-                onClick={createTestData}
-                disabled={syncing}
-                className="px-4 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700 disabled:bg-gray-400"
-              >
-                {syncing ? "Creating..." : "🧪 Create Test Data"}
-              </button>
-            </div>
-          </div>
+          <p className="text-gray-600">Loading dashboard...</p>
         </div>
       </div>
     );
@@ -249,237 +133,247 @@ export default function DashboardPage() {
       <div className="max-w-7xl mx-auto">
         {/* Header */}
         <div className="mb-8">
-          <h1 className="text-3xl font-bold text-gray-900">Margin Dashboard</h1>
-          <p className="text-gray-600 mt-2">
-            Track your profit margins over time
-          </p>
+          <h1 className="text-3xl font-bold text-gray-900 mb-2">📊 Margin Analytics</h1>
+          <p className="text-gray-600">Order matching performance & profitability</p>
+          <a href="/" className="text-blue-600 hover:underline mt-2 inline-block">
+            ← Back to Matching
+          </a>
         </div>
 
-        {/* Controls */}
-        <div className="mb-6 flex flex-wrap items-center gap-4">
-          <div className="flex items-center gap-4">
-            <label className="text-sm font-medium text-gray-700">
-              Period:
-            </label>
-            <select
-              value={days}
-              onChange={(e) => setDays(parseInt(e.target.value))}
-              className="px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+        {/* Tabs */}
+        <div className="mb-6 border-b border-gray-200">
+          <nav className="-mb-px flex space-x-8">
+            <button
+              onClick={() => setActiveTab("metrics")}
+              className={`py-4 px-1 border-b-2 font-medium text-sm ${
+                activeTab === "metrics"
+                  ? "border-blue-500 text-blue-600"
+                  : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
+              }`}
             >
-              <option value={7}>Last 7 days</option>
-              <option value={30}>Last 30 days</option>
-              <option value={90}>Last 90 days</option>
-              <option value={365}>Last year</option>
-            </select>
-            {metrics && (
-              <span className="text-sm text-gray-500">
-                {metrics.period.startDate} to {metrics.period.endDate}
-              </span>
+              📈 Metrics
+            </button>
+            <button
+              onClick={() => setActiveTab("comparison")}
+              className={`py-4 px-1 border-b-2 font-medium text-sm ${
+                activeTab === "comparison"
+                  ? "border-blue-500 text-blue-600"
+                  : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
+              }`}
+            >
+              🔄 Shopify Comparison
+            </button>
+          </nav>
+        </div>
+
+        {/* Period Selector */}
+        <div className="mb-6 flex gap-2">
+          {[7, 30, 90, 365].map((d) => (
+            <button
+              key={d}
+              onClick={() => setDays(d)}
+              className={`px-4 py-2 rounded-lg font-medium transition-colors ${
+                days === d
+                  ? "bg-blue-600 text-white"
+                  : "bg-white text-gray-700 hover:bg-gray-100 border border-gray-300"
+              }`}
+            >
+              {d} days
+            </button>
+          ))}
+        </div>
+
+        {/* Error Message */}
+        {error && (
+          <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg">
+            <p className="text-red-800 font-medium">Error: {error}</p>
+            <p className="text-red-600 text-sm mt-1">Check browser console (F12) for details</p>
+          </div>
+        )}
+
+        {/* Metrics Tab */}
+        {activeTab === "metrics" && metrics && (
+          <>
+            {/* Summary Cards */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+              <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-200">
+                <div className="text-sm text-gray-600 mb-1">Total Sales</div>
+                <div className="text-3xl font-bold text-gray-900">
+                  {formatCurrency(metrics.totals.totalSales)}
+                </div>
+                <div className="text-xs text-gray-500 mt-1">
+                  {metrics.period.days} days
+                </div>
+              </div>
+
+              <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-200">
+                <div className="text-sm text-gray-600 mb-1">Total Margin</div>
+                <div className="text-3xl font-bold text-green-600">
+                  {formatCurrency(metrics.totals.totalMargin)}
+                </div>
+                <div className="text-xs text-gray-500 mt-1">Net profit</div>
+              </div>
+
+              <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-200">
+                <div className="text-sm text-gray-600 mb-1">Overall Margin %</div>
+                <div className="text-3xl font-bold text-blue-600">
+                  {formatPercent(metrics.totals.overallMarginPct)}
+                </div>
+                <div className="text-xs text-gray-500 mt-1">Average profitability</div>
+              </div>
+            </div>
+
+            {/* Chart */}
+            {metrics.data.length > 0 ? (
+              <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-200">
+                <h2 className="text-xl font-semibold mb-4">Daily Performance</h2>
+                <ResponsiveContainer width="100%" height={400}>
+                  <ComposedChart data={metrics.data}>
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis 
+                      dataKey="date" 
+                      tick={{ fontSize: 12 }}
+                      angle={-45}
+                      textAnchor="end"
+                      height={80}
+                    />
+                    <YAxis yAxisId="left" />
+                    <YAxis yAxisId="right" orientation="right" />
+                    <Tooltip
+                      formatter={(value: any, name: string) => {
+                        if (name === "marginChf") return [formatCurrency(value), "Margin CHF"];
+                        if (name === "marginPct") return [formatPercent(value), "Margin %"];
+                        if (name === "sales") return [formatCurrency(value), "Sales"];
+                        return [value, name];
+                      }}
+                    />
+                    <Legend />
+                    <Bar yAxisId="left" dataKey="marginChf" fill="#3b82f6" name="Margin CHF" />
+                    <Line
+                      yAxisId="right"
+                      type="monotone"
+                      dataKey="marginPct"
+                      stroke="#10b981"
+                      strokeWidth={2}
+                      name="Margin %"
+                    />
+                  </ComposedChart>
+                </ResponsiveContainer>
+              </div>
+            ) : (
+              <div className="bg-white p-12 rounded-lg shadow-sm border border-gray-200 text-center">
+                <p className="text-gray-600 mb-4">No data available for selected period</p>
+                <p className="text-sm text-gray-500">
+                  Go to the <a href="/" className="text-blue-600 hover:underline">main page</a> to match orders
+                </p>
+              </div>
             )}
-          </div>
-
-          <div className="flex gap-2 flex-wrap">
-            <button
-              onClick={syncMetrics}
-              disabled={syncing}
-              className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed whitespace-nowrap font-medium"
-              title="Sync OrderMatch data to dashboard metrics"
-            >
-              {syncing ? "🔄 Syncing..." : "🔄 Sync to Dashboard"}
-            </button>
-            <button
-              onClick={recoverFromShopify}
-              disabled={syncing}
-              className="px-4 py-2 bg-orange-600 text-white rounded-md hover:bg-orange-700 disabled:bg-gray-400 disabled:cursor-not-allowed whitespace-nowrap font-medium"
-              title="Recover data from Shopify metafields if local DB is lost"
-            >
-              {syncing ? "🔄 Recovering..." : "🛟 Recover from Shopify"}
-            </button>
-            <button
-              onClick={createTestData}
-              disabled={syncing}
-              className="px-4 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700 disabled:bg-gray-400 disabled:cursor-not-allowed whitespace-nowrap font-medium"
-              title="Create sample margin data for testing the dashboard"
-            >
-              {syncing ? "🔄 Creating..." : "🧪 Create Test Data"}
-            </button>
-          </div>
-        </div>
-
-        {/* Summary Cards */}
-        {metrics && (
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-            <div className="bg-white rounded-lg shadow p-6">
-              <div className="flex items-center">
-                <div className="flex-shrink-0">
-                  <div className="w-8 h-8 bg-green-500 rounded-md flex items-center justify-center">
-                    <span className="text-white text-sm font-bold">💰</span>
-                  </div>
-                </div>
-                <div className="ml-4">
-                  <dt className="text-sm font-medium text-gray-500 truncate">
-                    Total Sales
-                  </dt>
-                  <dd className="text-2xl font-semibold text-gray-900">
-                    {formatCurrency(metrics.totals.totalSales)}
-                  </dd>
-                </div>
-              </div>
-            </div>
-
-            <div className="bg-white rounded-lg shadow p-6">
-              <div className="flex items-center">
-                <div className="flex-shrink-0">
-                  <div className="w-8 h-8 bg-blue-500 rounded-md flex items-center justify-center">
-                    <span className="text-white text-sm font-bold">📈</span>
-                  </div>
-                </div>
-                <div className="ml-4">
-                  <dt className="text-sm font-medium text-gray-500 truncate">
-                    Total Margin
-                  </dt>
-                  <dd className="text-2xl font-semibold text-gray-900">
-                    {formatCurrency(metrics.totals.totalMargin)}
-                  </dd>
-                </div>
-              </div>
-            </div>
-
-            <div className="bg-white rounded-lg shadow p-6">
-              <div className="flex items-center">
-                <div className="flex-shrink-0">
-                  <div className={`w-8 h-8 rounded-md flex items-center justify-center ${
-                    metrics.totals.overallMarginPct >= 20
-                      ? "bg-green-500"
-                      : metrics.totals.overallMarginPct >= 10
-                      ? "bg-yellow-500"
-                      : "bg-red-500"
-                  }`}>
-                    <span className="text-white text-sm font-bold">%</span>
-                  </div>
-                </div>
-                <div className="ml-4">
-                  <dt className="text-sm font-medium text-gray-500 truncate">
-                    Overall Margin
-                  </dt>
-                  <dd className="text-2xl font-semibold text-gray-900">
-                    {formatPercent(metrics.totals.overallMarginPct)}
-                  </dd>
-                </div>
-              </div>
-            </div>
-          </div>
+          </>
         )}
 
-        {/* Chart */}
-        {metrics && metrics.data.length > 0 && (
-          <div className="bg-white rounded-lg shadow p-6">
-            <h2 className="text-xl font-semibold text-gray-900 mb-6">
-              Margin Trends
-            </h2>
-            <div className="h-96">
-              <ResponsiveContainer width="100%" height="100%">
-                <ComposedChart
-                  data={metrics.data}
-                  margin={{
-                    top: 20,
-                    right: 30,
-                    left: 20,
-                    bottom: 5,
-                  }}
-                >
-                  <CartesianGrid strokeDasharray="3 3" />
-                  <XAxis
-                    dataKey="date"
-                    tickFormatter={formatDate}
-                    fontSize={12}
-                  />
-                  <YAxis
-                    yAxisId="left"
-                    orientation="left"
-                    tickFormatter={(value) => `CHF ${value}`}
-                    fontSize={12}
-                  />
-                  <YAxis
-                    yAxisId="right"
-                    orientation="right"
-                    tickFormatter={(value) => `${value}%`}
-                    fontSize={12}
-                  />
-                  <Tooltip
-                    formatter={(value: any, name: string) => {
-                      if (name === "Margin CHF") {
-                        return [formatCurrency(value), name];
-                      }
-                      if (name === "Margin %") {
-                        return [formatPercent(value), name];
-                      }
-                      if (name === "Sales") {
-                        return [formatCurrency(value), name];
-                      }
-                      return [value, name];
-                    }}
-                    labelFormatter={(label) => `Date: ${formatDate(label)}`}
-                  />
-                  <Legend />
-                  <Bar
-                    yAxisId="left"
-                    dataKey="marginChf"
-                    fill="#3B82F6"
-                    name="Margin CHF"
-                    radius={[2, 2, 0, 0]}
-                  />
-                  <Line
-                    yAxisId="right"
-                    type="monotone"
-                    dataKey="marginPct"
-                    stroke="#10B981"
-                    strokeWidth={3}
-                    name="Margin %"
-                    dot={{ fill: "#10B981", strokeWidth: 2, r: 4 }}
-                  />
-                </ComposedChart>
-              </ResponsiveContainer>
+        {/* Comparison Tab */}
+        {activeTab === "comparison" && (
+          <div className="bg-white rounded-lg shadow-sm border border-gray-200">
+            <div className="p-6 border-b border-gray-200">
+              <h2 className="text-xl font-semibold">Shopify vs Database Comparison</h2>
+              <p className="text-sm text-gray-600 mt-1">
+                Compare metafields on Shopify with local database records
+              </p>
             </div>
-          </div>
-        )}
 
-        {/* No Data Message */}
-        {metrics && metrics.data.length === 0 && (
-          <div className="bg-white rounded-lg shadow p-12 text-center">
-            <div className="text-gray-400 text-6xl mb-4">📊</div>
-            <h3 className="text-xl font-semibold text-gray-900 mb-2">
-              No Margin Data Available
-            </h3>
-            <p className="text-gray-600 mb-4">
-              No orders with margin data found in the last {days} days.
-              Margin data is automatically collected when orders are matched and synced.
-            </p>
-            <div className="space-y-2">
-              <p className="text-sm text-gray-500">Try these options:</p>
-              <div className="flex justify-center gap-2 flex-wrap">
-                <button
-                  onClick={syncMetrics}
-                  disabled={syncing}
-                  className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 disabled:bg-gray-400 text-sm"
-                >
-                  {syncing ? "Syncing..." : "🔄 Sync from DB"}
-                </button>
-                <button
-                  onClick={createTestData}
-                  disabled={syncing}
-                  className="px-4 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700 disabled:bg-gray-400 text-sm"
-                >
-                  {syncing ? "Creating..." : "🧪 Create Test Data"}
-                </button>
-                <a
-                  href="/"
-                  className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 text-sm inline-block"
-                >
-                  📦 Match Orders First
-                </a>
+            {comparison.length === 0 ? (
+              <div className="p-12 text-center">
+                <p className="text-gray-600">No synced orders found</p>
               </div>
-            </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="min-w-full divide-y divide-gray-200">
+                  <thead className="bg-gray-50">
+                    <tr>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                        Order
+                      </th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                        StockX #
+                      </th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                        Shopify Cost
+                      </th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                        DB Cost
+                      </th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                        Shopify Margin
+                      </th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                        DB Margin
+                      </th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                        Status
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody className="bg-white divide-y divide-gray-200">
+                    {comparison.map((item) => {
+                      const costMatch =
+                        item.shopify.supplierCost === item.db?.supplierCost;
+                      const marginMatch =
+                        item.shopify.marginAmount === item.db?.marginAmount;
+
+                      return (
+                        <tr key={item.orderId}>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                            {item.orderName}
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                            {item.shopify.stockxOrderNumber || item.db?.stockxOrderNumber || "—"}
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                            {item.shopify.supplierCost
+                              ? formatCurrency(item.shopify.supplierCost)
+                              : "—"}
+                          </td>
+                          <td
+                            className={`px-6 py-4 whitespace-nowrap text-sm ${
+                              costMatch ? "text-green-600" : "text-orange-600"
+                            }`}
+                          >
+                            {item.db?.supplierCost
+                              ? formatCurrency(item.db.supplierCost)
+                              : "—"}
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                            {item.shopify.marginAmount
+                              ? formatCurrency(item.shopify.marginAmount)
+                              : "—"}
+                          </td>
+                          <td
+                            className={`px-6 py-4 whitespace-nowrap text-sm ${
+                              marginMatch ? "text-green-600" : "text-orange-600"
+                            }`}
+                          >
+                            {item.db?.marginAmount
+                              ? formatCurrency(item.db.marginAmount)
+                              : "—"}
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap">
+                            {item.match === "synced" ? (
+                              <span className="px-2 py-1 text-xs font-medium bg-green-100 text-green-800 rounded-full">
+                                ✓ Synced
+                              </span>
+                            ) : (
+                              <span className="px-2 py-1 text-xs font-medium bg-yellow-100 text-yellow-800 rounded-full">
+                                Metafields only
+                              </span>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
         )}
       </div>
