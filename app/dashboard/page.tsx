@@ -297,6 +297,12 @@ export default function DashboardPage() {
                         StockX #
                       </th>
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                        Shopify Sale
+                      </th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                        DB Sale
+                      </th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
                         Shopify Cost
                       </th>
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
@@ -314,7 +320,8 @@ export default function DashboardPage() {
                     </tr>
                   </thead>
                   <tbody className="bg-white divide-y divide-gray-200">
-                    {comparison.map((item) => {
+                    {comparison.map((item: any) => {
+                      const saleMatch = item.shopifySalePrice === item.db?.salePrice;
                       const costMatch =
                         item.shopify.supplierCost === item.db?.supplierCost;
                       const marginMatch =
@@ -327,6 +334,20 @@ export default function DashboardPage() {
                           </td>
                           <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                             {item.shopify.stockxOrderNumber || item.db?.stockxOrderNumber || "—"}
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                            {item.shopifySalePrice
+                              ? formatCurrency(item.shopifySalePrice)
+                              : "—"}
+                          </td>
+                          <td
+                            className={`px-6 py-4 whitespace-nowrap text-sm ${
+                              saleMatch ? "text-green-600" : "text-orange-600"
+                            }`}
+                          >
+                            {item.db?.salePrice
+                              ? formatCurrency(item.db.salePrice)
+                              : "—"}
                           </td>
                           <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                             {item.shopify.supplierCost

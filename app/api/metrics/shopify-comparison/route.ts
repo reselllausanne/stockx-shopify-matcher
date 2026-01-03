@@ -28,6 +28,7 @@ export async function GET(req: Request) {
         marginAmount: true,
         marginPercent: true,
         stockxStatus: true,
+        shopifyCurrencyCode: true,
         createdAt: true,
       },
     });
@@ -52,19 +53,19 @@ export async function GET(req: Request) {
               id
               name
               createdAt
-              totalPriceSet {
+              currentTotalPriceSet {
                 shopMoney {
                   amount
                   currencyCode
                 }
               }
-              stockxOrderNumber: metafield(namespace: $namespace, key: "stockx_order_number") {
+              stockxOrderNumber: metafield(namespace: $namespace, key: "order_number") {
                 value
               }
-              status: metafield(namespace: $namespace, key: "stockx_status") {
+              status: metafield(namespace: $namespace, key: "status") {
                 value
               }
-              supplierCost: metafield(namespace: $namespace, key: "supplier_cost") {
+              supplierCost: metafield(namespace: $namespace, key: "total_cost") {
                 value
               }
               marginAmount: metafield(namespace: $namespace, key: "margin_amount") {
@@ -114,12 +115,19 @@ export async function GET(req: Request) {
       // Find DB match
       const dbMatch = dbMatches.find((m) => m.shopifyOrderId === orderId);
 
+      // Get Shopify sale price (current price after discounts)
+      const shopifySalePrice = order.currentTotalPriceSet?.shopMoney?.amount 
+        ? parseFloat(order.currentTotalPriceSet.shopMoney.amount) 
+        : null;
+
       // Only include orders that have metafields OR DB match
       if (dbMatch || stockxOrderNumber) {
         comparison.push({
           orderId,
           orderName: order.name,
           createdAt: order.createdAt,
+          shopifySalePrice, // Add sale price
+          currency: order.currentTotalPriceSet?.shopMoney?.currencyCode || dbMatch?.shopifyCurrencyCode || "CHF",
           shopify: {
             stockxOrderNumber,
             status,
@@ -129,6 +137,7 @@ export async function GET(req: Request) {
           },
           db: dbMatch
             ? {
+                salePrice: dbMatch.shopifyTotalPrice, // Add DB sale price for comparison
                 stockxOrderNumber: dbMatch.stockxOrderNumber,
                 status: dbMatch.stockxStatus,
                 supplierCost: dbMatch.supplierCost,
