@@ -1180,6 +1180,22 @@ export default function Home() {
           StockX Pro GraphQL Playground
         </h1>
 
+        {/* Navigation */}
+        <div className="bg-white rounded-lg shadow p-4 mb-6">
+          <nav className="flex space-x-4">
+            <a
+              href="/dashboard"
+              className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors font-medium"
+            >
+              📊 Margin Dashboard
+            </a>
+            <span className="text-gray-400">|</span>
+            <span className="text-gray-600 py-2">
+              StockX Order Matching Tool
+            </span>
+          </nav>
+        </div>
+
         {/* Token Input */}
         <div className="bg-white rounded-lg shadow p-6 mb-6">
           <h2 className="text-xl font-semibold mb-4">Authentication</h2>
