@@ -18,8 +18,8 @@ type ShopifyLineItem = {
   variantTitle: string | null;
   sizeEU: string | null;
   quantity: number;
-  price: string; // unit price
-  totalPrice: string; // line total
+  price: string;      // unit price AFTER discounts
+  totalPrice: string; // line total AFTER discounts
   currencyCode: string;
 };
 
@@ -34,27 +34,17 @@ query OrdersForMatching($first: Int!, $query: String!) {
         displayFinancialStatus
         displayFulfillmentStatus
         customer { displayName }
-        
-        # Order-level real totals (after discounts)
+
         currentSubtotalPriceSet {
-          shopMoney {
-            amount
-            currencyCode
-          }
+          shopMoney { amount currencyCode }
         }
         currentTotalDiscountsSet {
-          shopMoney {
-            amount
-            currencyCode
-          }
+          shopMoney { amount currencyCode }
         }
         currentTotalPriceSet {
-          shopMoney {
-            amount
-            currencyCode
-          }
+          shopMoney { amount currencyCode }
         }
-        
+
         lineItems(first: 50) {
           edges {
             node {
@@ -63,8 +53,9 @@ query OrdersForMatching($first: Int!, $query: String!) {
               sku
               quantity
               variantTitle
-              originalUnitPriceSet { shopMoney { amount currencyCode } }
-              discountedTotalSet { shopMoney { amount currencyCode } }
+              discountedTotalSet {
+                shopMoney { amount currencyCode }
+              }
             }
           }
         }
@@ -84,9 +75,7 @@ export async function POST(req: Request) {
     sinceDate.setDate(sinceDate.getDate() - days);
     const iso = sinceDate.toISOString();
 
-    // Search for paid orders (not filtering by fulfillment to get all)
     const search = `created_at:>${iso} financial_status:paid`;
-
     console.log(`[SHOPIFY] Fetching orders with query: ${search}`);
 
     const { data, errors } = await shopifyGraphQL<{
@@ -95,7 +84,10 @@ export async function POST(req: Request) {
 
     if (errors?.length) {
       console.error("[SHOPIFY] GraphQL errors:", errors);
-      return NextResponse.json({ error: "Shopify GraphQL errors", details: errors }, { status: 500 });
+      return NextResponse.json(
+        { error: "Shopify GraphQL errors", details: errors },
+        { status: 500 }
+      );
     }
 
     const edges = data?.orders?.edges ?? [];
@@ -110,26 +102,39 @@ export async function POST(req: Request) {
       const displayFulfillmentStatus = o.displayFulfillmentStatus ?? null;
       const customerName = o.customer?.displayName ?? null;
 
+      // Get order-level total (AFTER all discounts including order-level codes)
+      const orderTotal = o.currentTotalPriceSet?.shopMoney;
+      const orderSubtotal = o.currentSubtotalPriceSet?.shopMoney;
+      
       const liEdges = o.lineItems?.edges ?? [];
+      
+      // Calculate order-level discount ratio
+      const orderTotalAmount = orderTotal?.amount ? parseFloat(orderTotal.amount) : 0;
+      const orderSubtotalAmount = orderSubtotal?.amount ? parseFloat(orderSubtotal.amount) : 0;
+      const orderDiscountRatio = orderSubtotalAmount > 0 
+        ? orderTotalAmount / orderSubtotalAmount 
+        : 1;
+
       for (const liE of liEdges) {
         const li = liE.node;
-        
-        // IMPORTANT: Use discountedTotalSet for real sell price (after discounts)
+
+        // Start with line-item discounted total
         const discounted = li.discountedTotalSet?.shopMoney;
-        const unit = li.originalUnitPriceSet?.shopMoney; // For reference only
+        const currencyCode = discounted?.currencyCode || orderTotal?.currencyCode || "CHF";
+        const lineDiscountedAmount = discounted?.amount ? parseFloat(discounted.amount) : 0;
         
-        const currencyCode = discounted?.currencyCode || unit?.currencyCode || "CHF";
-        const totalAmount = discounted?.amount ?? "0"; // ✅ DISCOUNTED total
+        // Apply order-level discount ratio to get FINAL price
+        const finalAmount = lineDiscountedAmount * orderDiscountRatio;
+        const totalAmount = finalAmount.toFixed(2);
+
         const qty = Number(li.quantity ?? 0);
-        
-        // Unit price for display (from discounted total / quantity)
-        const unitAmount = qty > 0 
-          ? String(Number(totalAmount) / qty) 
-          : (unit?.amount ?? "0");
+        const unitAmount =
+          qty > 0 ? (finalAmount / qty).toFixed(2) : totalAmount;
 
         const variantTitle = li.variantTitle ?? null;
-        const productName = li.name ?? "—"; // Use 'name' field (documented)
-        const sizeEU = extractEUSize(variantTitle) ?? extractEUSize(productName);
+        const productName = li.name ?? "—";
+        const sizeEU =
+          extractEUSize(variantTitle) ?? extractEUSize(productName) ?? null;
 
         lineItems.push({
           shopifyOrderId: orderId,
@@ -145,15 +150,14 @@ export async function POST(req: Request) {
           variantTitle,
           sizeEU,
           quantity: qty,
-          price: String(unitAmount), // Calculated from discounted total
-          totalPrice: String(totalAmount), // ✅ DISCOUNTED total (real sell price)
+          price: unitAmount,      // AFTER all discounts (line + order level)
+          totalPrice: totalAmount, // AFTER all discounts (line + order level)
           currencyCode,
         });
       }
     }
 
     console.log(`[SHOPIFY] Fetched ${lineItems.length} line items from ${edges.length} orders`);
-
     return NextResponse.json({ lineItems });
   } catch (err: any) {
     console.error("[/api/shopify/orders] error:", err);
