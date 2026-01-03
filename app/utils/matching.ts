@@ -188,28 +188,37 @@ export function matchShopifyToStockX(
     reasons.push("✅ Product name 100% match");
 
     // HARD FILTER 2: Size must match 100% (if both have sizes)
-    // First, normalize sizes for comparison
-    const shopifySize = shopifyItem.sizeEU || shopifyItem.variantTitle;
-    const stockxSize = stockxOrder.sizeEU;
+    // EXCEPTION: LEGO products have no sizes, skip size validation entirely
+    const isLEGO = shopifyItem.title.toLowerCase().includes("lego") || stockxOrder.productTitle.toLowerCase().includes("lego");
     
-    console.log(`[MATCH] Size comparison: Shopify "${shopifySize}" (sizeEU: "${shopifyItem.sizeEU}", variantTitle: "${shopifyItem.variantTitle}") vs StockX "${stockxSize}"`);
-    
-    const sizeMatches = sizeMatch(shopifySize, stockxSize);
-    
-    // For products with sizes (sneakers, clothing) - MUST match or skip
-    if (shopifySize && stockxSize) {
-      if (!sizeMatches) {
-        console.log(`[MATCH] ❌ Size mismatch: Shopify "${shopifySize}" vs StockX "${stockxSize}" - SKIPPING`);
-        continue; // Different sizes = skip candidate
-      }
-      reasons.push("✅ Size 100% match");
-    } else if (!shopifySize && !stockxSize) {
-      // Both have no size (LEGO, accessories) = OK
-      reasons.push("✅ No size required");
+    if (isLEGO) {
+      // LEGO products: No size validation at all
+      reasons.push("🧱 LEGO (no size required)");
+      console.log(`[MATCH] 🧱 LEGO product detected - skipping size validation`);
     } else {
-      // One has size, other doesn't - this is suspicious for sneakers!
-      console.log(`[MATCH] ⚠️ Size data incomplete: Shopify "${shopifySize}" vs StockX "${stockxSize}" - SKIPPING for safety`);
-      continue; // Skip if only one has size data
+      // Non-LEGO products: Strict size validation
+      const shopifySize = shopifyItem.sizeEU || shopifyItem.variantTitle;
+      const stockxSize = stockxOrder.sizeEU;
+      
+      console.log(`[MATCH] Size comparison: Shopify "${shopifySize}" (sizeEU: "${shopifyItem.sizeEU}", variantTitle: "${shopifyItem.variantTitle}") vs StockX "${stockxSize}"`);
+      
+      const sizeMatches = sizeMatch(shopifySize, stockxSize);
+      
+      // For products with sizes (sneakers, clothing) - MUST match or skip
+      if (shopifySize && stockxSize) {
+        if (!sizeMatches) {
+          console.log(`[MATCH] ❌ Size mismatch: Shopify "${shopifySize}" vs StockX "${stockxSize}" - SKIPPING`);
+          continue; // Different sizes = skip candidate
+        }
+        reasons.push("✅ Size 100% match");
+      } else if (!shopifySize && !stockxSize) {
+        // Both have no size (accessories) = OK
+        reasons.push("✅ No size required");
+      } else {
+        // One has size, other doesn't - this is suspicious for sneakers!
+        console.log(`[MATCH] ⚠️ Size data incomplete: Shopify "${shopifySize}" vs StockX "${stockxSize}" - SKIPPING for safety`);
+        continue; // Skip if only one has size data
+      }
     }
 
     // Now candidate passed hard filters, calculate score for ranking

@@ -138,3 +138,4 @@ Edit `/app/api/cron/refresh-token/route.ts`:
 <function_calls>
 <invoke name="read_file">
 <parameter name="target_file">/Users/theomanzinali/Code scrapping price /app/api/cron/refresh-token/route.ts
+
