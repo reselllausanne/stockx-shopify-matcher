@@ -62,6 +62,15 @@ const EXCLUDED_SKUS = [
   "192HO246250F-M", "192HO246250F-L", "192HO246250F-XL", "192HO246250F-XXL",
 ];
 
+function cleanShopifyTitleForMatch(title: string): string {
+  return title
+    // Remove trailing size: " - 49.5", " - EU 49.5", etc.
+    .replace(/\s*-\s*(EU\s*)?\d+(\.\d+)?\s*$/i, "")
+    // Remove trailing %
+    .replace(/\s*%\s*$/i, "")
+    .trim();
+}
+
 function normalizeProductName(name: string): string {
   return name
     .toLowerCase()
@@ -86,8 +95,13 @@ function productNameMatch(name1: string, name2: string): boolean {
   }
   
   // For regular products: very strict similarity (>95% word overlap)
-  const words1 = new Set(n1.split(/\s+/).filter(w => w.length > 2));
-  const words2 = new Set(n2.split(/\s+/).filter(w => w.length > 2));
+  // Ignore pure numeric tokens (like "49.5") to avoid false negatives
+  const words1 = new Set(
+    n1.split(/\s+/).filter(w => w.length > 2 && !/^\d+(\.\d+)?$/.test(w))
+  );
+  const words2 = new Set(
+    n2.split(/\s+/).filter(w => w.length > 2 && !/^\d+(\.\d+)?$/.test(w))
+  );
   
   const intersection = new Set([...words1].filter(w => words2.has(w)));
   const union = new Set([...words1, ...words2]);
@@ -154,7 +168,7 @@ export function matchShopifyToStockX(
 ): MatchResult {
   // Check exclusions
   const isExcluded = EXCLUDED_SKUS.includes(shopifyItem.sku || "");
-  const isLiquidation = shopifyItem.title.trim().endsWith("%");
+  const isLiquidation = /%/.test(shopifyItem.title); // More robust: % anywhere
 
   if (isExcluded) {
     console.log(`[SKIP] Fear of God in stock: ${shopifyItem.sku}`);
@@ -177,11 +191,17 @@ export function matchShopifyToStockX(
 
   const candidates: MatchCandidate[] = [];
 
+  // Clean Shopify title (remove size suffix like " - 49.5")
+  const shopifyTitleClean = cleanShopifyTitleForMatch(shopifyItem.title);
+  if (shopifyTitleClean !== shopifyItem.title) {
+    console.log(`[CLEAN] "${shopifyItem.title}" → "${shopifyTitleClean}"`);
+  }
+
   for (const stockxOrder of stockxOrders) {
     const reasons: string[] = [];
 
     // HARD FILTER 1: Product name must match 100% (or 95%+ strict)
-    const nameMatches = productNameMatch(shopifyItem.title, stockxOrder.productTitle);
+    const nameMatches = productNameMatch(shopifyTitleClean, stockxOrder.productTitle);
     if (!nameMatches) {
       continue; // Skip this candidate entirely
     }
