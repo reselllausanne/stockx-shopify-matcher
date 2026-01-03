@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import React, { useState, useEffect } from "react";
 import {
   matchShopifyToStockX,
   type NormalizedStockXOrder,
@@ -918,6 +918,15 @@ export default function Home() {
     }
   };
 
+  // Manual override state
+  const [manualOverrideExpanded, setManualOverrideExpanded] = useState<Record<string, boolean>>({});
+  const [manualOverrideData, setManualOverrideData] = useState<Record<string, {
+    status: string;
+    adjustment: string;
+    note: string;
+  }>>({});
+  const [manualOverrideLoading, setManualOverrideLoading] = useState<Record<string, boolean>>({});
+
   // Load matches from DB
   const loadFromDB = async () => {
     setDbLoading(true);
@@ -1039,6 +1048,75 @@ export default function Home() {
       alert(`❌ Status check failed:\n\n${error.message}`);
     } finally {
       setStatusCheckLoading(false);
+    }
+  };
+
+  // Apply manual override (for refunds/returns)
+  const applyManualOverride = async (matchId: string, match: any) => {
+    const data = manualOverrideData[matchId];
+    if (!data) return;
+
+    const adjustment = parseFloat(data.adjustment || "0");
+    const effectiveRevenue = match.shopifyTotalPrice + adjustment;
+
+    const confirmMessage = 
+      `📝 Apply Manual Override?\n\n` +
+      `Order: ${match.shopifyOrderName}\n` +
+      `Product: ${match.shopifyProductTitle}\n\n` +
+      `Status: ${data.status || "ACTIVE (default)"}\n` +
+      `Revenue Adjustment: CHF ${adjustment.toFixed(2)}\n` +
+      `Note: ${data.note || "(none)"}\n\n` +
+      `💰 Financial Impact:\n` +
+      `Original Revenue: CHF ${match.shopifyTotalPrice.toFixed(2)}\n` +
+      `Adjusted Revenue: CHF ${effectiveRevenue.toFixed(2)}\n` +
+      `Supplier Cost: CHF ${match.supplierCost.toFixed(2)}\n` +
+      `Adjusted Margin: CHF ${(effectiveRevenue - match.supplierCost).toFixed(2)}\n\n` +
+      `⚠️ This will protect this match from auto-sync updates.`;
+
+    if (!confirm(confirmMessage)) return;
+
+    setManualOverrideLoading(prev => ({ ...prev, [matchId]: true }));
+
+    try {
+      const res = await fetch("/api/db/manual-override", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          matchId,
+          manualCaseStatus: data.status || null,
+          manualRevenueAdjustment: adjustment,
+          manualNote: data.note || null,
+        }),
+      });
+
+      const result = await res.json();
+
+      if (!res.ok) {
+        alert(`❌ Failed to apply override:\n\n${result.error}\n\n${result.details || ""}`);
+        return;
+      }
+
+      alert(
+        `✅ Manual override applied!\n\n` +
+        `Order: ${match.shopifyOrderName}\n` +
+        `Effective Revenue: CHF ${result.match.effectiveRevenue.toFixed(2)}\n` +
+        `Effective Margin: CHF ${result.match.effectiveMargin.toFixed(2)} (${result.match.effectiveMarginPct.toFixed(1)}%)\n\n` +
+        `✅ Dashboard will reflect this change immediately.\n` +
+        `🔒 Auto-sync will NOT overwrite this.`
+      );
+
+      // Collapse and clear form
+      setManualOverrideExpanded(prev => ({ ...prev, [matchId]: false }));
+      setManualOverrideData(prev => ({ ...prev, [matchId]: { status: "", adjustment: "", note: "" } }));
+
+      // Reload matches to show updated data
+      await loadFromDB();
+
+    } catch (error: any) {
+      console.error("[MANUAL_OVERRIDE] Error:", error);
+      alert(`❌ Error applying override:\n\n${error.message}`);
+    } finally {
+      setManualOverrideLoading(prev => ({ ...prev, [matchId]: false }));
     }
   };
 
@@ -1727,50 +1805,172 @@ export default function Home() {
                       <th className="px-3 py-2 text-left">Status</th>
                       <th className="px-3 py-2 text-left">Synced</th>
                       <th className="px-3 py-2 text-left">Margin</th>
+                      <th className="px-3 py-2 text-left">Case Status</th>
                       <th className="px-3 py-2 text-left">Actions</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {dbMatches.map((match) => (
-                      <tr key={match.id} className="border-b hover:bg-purple-50">
-                        <td className="px-3 py-2 font-medium">{match.shopifyOrderName}</td>
-                        <td className="px-3 py-2 text-xs">{match.shopifyProductTitle}</td>
-                        <td className="px-3 py-2 font-mono text-xs">{match.stockxOrderNumber}</td>
-                        <td className="px-3 py-2">
-                          <span
-                            className={`px-2 py-1 rounded text-xs font-semibold ${
-                              match.matchConfidence === "high"
-                                ? "bg-green-100 text-green-800"
-                                : match.matchConfidence === "medium"
-                                ? "bg-yellow-100 text-yellow-800"
-                                : "bg-red-100 text-red-800"
-                            }`}
-                          >
-                            {match.matchConfidence.toUpperCase()}
-                          </span>
-                        </td>
-                        <td className="px-3 py-2 text-xs">{match.stockxStatus}</td>
-                        <td className="px-3 py-2">
-                          {match.shopifyMetafieldsSynced ? (
-                            <span className="text-green-600 font-semibold">✅</span>
-                          ) : (
-                            <span className="text-gray-400">⏸️</span>
+                    {dbMatches.map((match) => {
+                      const isExpanded = manualOverrideExpanded[match.id];
+                      const data = manualOverrideData[match.id] || { status: "", adjustment: "", note: "" };
+                      const isLoading = manualOverrideLoading[match.id];
+                      
+                      return (
+                        <React.Fragment key={match.id}>
+                          <tr className="border-b hover:bg-purple-50">
+                            <td className="px-3 py-2 font-medium">{match.shopifyOrderName}</td>
+                            <td className="px-3 py-2 text-xs">{match.shopifyProductTitle}</td>
+                            <td className="px-3 py-2 font-mono text-xs">{match.stockxOrderNumber}</td>
+                            <td className="px-3 py-2">
+                              <span
+                                className={`px-2 py-1 rounded text-xs font-semibold ${
+                                  match.matchConfidence === "high"
+                                    ? "bg-green-100 text-green-800"
+                                    : match.matchConfidence === "medium"
+                                    ? "bg-yellow-100 text-yellow-800"
+                                    : "bg-red-100 text-red-800"
+                                }`}
+                              >
+                                {match.matchConfidence.toUpperCase()}
+                              </span>
+                            </td>
+                            <td className="px-3 py-2 text-xs">{match.stockxStatus}</td>
+                            <td className="px-3 py-2">
+                              {match.shopifyMetafieldsSynced ? (
+                                <span className="text-green-600 font-semibold">✅</span>
+                              ) : (
+                                <span className="text-gray-400">⏸️</span>
+                              )}
+                            </td>
+                            <td className="px-3 py-2 text-xs font-semibold">
+                              {match.marginPercent.toFixed(1)}%
+                            </td>
+                            <td className="px-3 py-2">
+                              {match.manualCaseStatus ? (
+                                <span className="px-2 py-1 rounded text-xs font-semibold bg-orange-100 text-orange-800">
+                                  {match.manualCaseStatus}
+                                </span>
+                              ) : (
+                                <span className="text-xs text-gray-400">Active</span>
+                              )}
+                              {match.manualRevenueAdjustment && (
+                                <div className="text-xs text-orange-600 font-mono mt-1">
+                                  {match.manualRevenueAdjustment >= 0 ? "+" : ""}
+                                  {match.manualRevenueAdjustment.toFixed(2)} CHF
+                                </div>
+                              )}
+                            </td>
+                            <td className="px-3 py-2 space-x-1">
+                              <button
+                                onClick={() => setManualOverrideExpanded(prev => ({ ...prev, [match.id]: !isExpanded }))}
+                                className="text-orange-600 hover:text-orange-800 font-semibold text-xs px-2 py-1 rounded hover:bg-orange-50"
+                                title="Mark as refund/return"
+                              >
+                                {isExpanded ? "❌" : "💰"} Override
+                              </button>
+                              <button
+                                onClick={() => deleteMatch(match.id, match.shopifyOrderName)}
+                                className="text-red-600 hover:text-red-800 font-semibold text-xs px-2 py-1 rounded hover:bg-red-50"
+                                title="Delete this match from database"
+                              >
+                                🗑️
+                              </button>
+                            </td>
+                          </tr>
+                          {isExpanded && (
+                            <tr className="bg-orange-50 border-b">
+                              <td colSpan={9} className="px-6 py-4">
+                                <div className="max-w-2xl">
+                                  <h4 className="font-semibold text-orange-900 mb-3">
+                                    💰 Manual Override: {match.shopifyOrderName}
+                                  </h4>
+                                  <div className="grid grid-cols-2 gap-4 mb-4">
+                                    <div>
+                                      <label className="block text-xs font-medium text-gray-700 mb-1">
+                                        Case Status
+                                      </label>
+                                      <select
+                                        value={data.status}
+                                        onChange={(e) => setManualOverrideData(prev => ({
+                                          ...prev,
+                                          [match.id]: { ...prev[match.id] || {}, status: e.target.value }
+                                        }))}
+                                        className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
+                                      >
+                                        <option value="">ACTIVE (default)</option>
+                                        <option value="CLOSED_CREDIT">CLOSED_CREDIT (store credit)</option>
+                                        <option value="RETURNED">RETURNED (item returned)</option>
+                                        <option value="EXCHANGE_PENDING">EXCHANGE_PENDING</option>
+                                      </select>
+                                    </div>
+                                    <div>
+                                      <label className="block text-xs font-medium text-gray-700 mb-1">
+                                        Revenue Adjustment (CHF)
+                                      </label>
+                                      <input
+                                        type="number"
+                                        step="0.01"
+                                        value={data.adjustment}
+                                        onChange={(e) => setManualOverrideData(prev => ({
+                                          ...prev,
+                                          [match.id]: { ...prev[match.id] || {}, adjustment: e.target.value }
+                                        }))}
+                                        placeholder="e.g., -200 for full refund"
+                                        className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm font-mono"
+                                      />
+                                      <p className="text-xs text-gray-500 mt-1">
+                                        Original: CHF {match.shopifyTotalPrice.toFixed(2)}
+                                        {data.adjustment && ` → CHF ${(match.shopifyTotalPrice + parseFloat(data.adjustment || "0")).toFixed(2)}`}
+                                      </p>
+                                    </div>
+                                  </div>
+                                  <div className="mb-4">
+                                    <label className="block text-xs font-medium text-gray-700 mb-1">
+                                      Note (optional)
+                                    </label>
+                                    <input
+                                      type="text"
+                                      value={data.note}
+                                      onChange={(e) => setManualOverrideData(prev => ({
+                                        ...prev,
+                                        [match.id]: { ...prev[match.id] || {}, note: e.target.value }
+                                      }))}
+                                      placeholder="e.g., Customer received store credit"
+                                      className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
+                                    />
+                                  </div>
+                                  <div className="flex gap-2">
+                                    <button
+                                      onClick={() => applyManualOverride(match.id, match)}
+                                      disabled={isLoading}
+                                      className="px-4 py-2 bg-orange-600 text-white rounded-md hover:bg-orange-700 disabled:bg-gray-400 text-sm font-medium"
+                                    >
+                                      {isLoading ? "Applying..." : "✅ Apply Override"}
+                                    </button>
+                                    <button
+                                      onClick={() => setManualOverrideExpanded(prev => ({ ...prev, [match.id]: false }))}
+                                      className="px-4 py-2 bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300 text-sm font-medium"
+                                    >
+                                      Cancel
+                                    </button>
+                                  </div>
+                                  <div className="mt-3 text-xs text-gray-600 bg-white p-3 rounded border border-orange-200">
+                                    <strong>ℹ️ How it works:</strong>
+                                    <ul className="mt-1 space-y-1 list-disc list-inside">
+                                      <li><strong>Full refund:</strong> Set adjustment to -{match.shopifyTotalPrice.toFixed(2)}</li>
+                                      <li><strong>Partial refund:</strong> Set adjustment to negative amount (e.g., -50)</li>
+                                      <li><strong>Store credit:</strong> Set status to CLOSED_CREDIT</li>
+                                      <li><strong>Dashboard:</strong> Will show adjusted margin immediately</li>
+                                      <li><strong>Auto-sync:</strong> Will NOT overwrite manual fields</li>
+                                    </ul>
+                                  </div>
+                                </div>
+                              </td>
+                            </tr>
                           )}
-                        </td>
-                        <td className="px-3 py-2 text-xs font-semibold">
-                          {match.marginPercent.toFixed(1)}%
-                        </td>
-                        <td className="px-3 py-2">
-                          <button
-                            onClick={() => deleteMatch(match.id, match.shopifyOrderName)}
-                            className="text-red-600 hover:text-red-800 font-semibold text-xs px-2 py-1 rounded hover:bg-red-50"
-                            title="Delete this match from database"
-                          >
-                            🗑️ Delete
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
+                        </React.Fragment>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
