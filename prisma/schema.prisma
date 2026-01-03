@@ -59,6 +59,9 @@ model OrderMatch {
 
   // Manual overrides
   manualCostOverride      Float?   // User-entered cost (overrides auto)
+  manualCaseStatus        String?  // ACTIVE (default), CLOSED_CREDIT, RETURNED, EXCHANGE_PENDING
+  manualRevenueAdjustment Float?   // Revenue adjustment (e.g., -shopifyTotalPrice for full refund)
+  manualNote              String?  // Free text note for manual adjustments
 
   // Timestamps
   createdAt               DateTime @default(now())

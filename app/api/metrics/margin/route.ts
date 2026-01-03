@@ -28,6 +28,7 @@ export async function GET(request: NextRequest) {
     startDate.setDate(endDate.getDate() - days);
 
     // Fetch metrics directly from OrderMatch
+    // Note: We fetch ALL matches (including closed/returned) to show refunds as negative impact
     const matches = await prisma.orderMatch.findMany({
       where: {
         createdAt: {
@@ -35,19 +36,23 @@ export async function GET(request: NextRequest) {
           lte: endDate,
         },
         marginAmount: { gt: 0 },
+        // Include closed cases for loss tracking (they show as negative when adjusted)
       },
       orderBy: {
         createdAt: "asc",
       },
       select: {
         shopifyOrderId: true,
+        shopifyOrderName: true,
         createdAt: true,
         shopifyTotalPrice: true,
+        supplierCost: true,
         marginAmount: true,
         marginPercent: true,
         shopifyCurrencyCode: true,
-        shopifyOrderName: true,
         stockxOrderNumber: true,
+        manualRevenueAdjustment: true,
+        manualCaseStatus: true,
       },
     });
 
@@ -80,6 +85,22 @@ export async function GET(request: NextRequest) {
     let totalMargin = 0;
 
     for (const match of matches) {
+      // 💰 POC: Calculate effective revenue (adjusted for refunds/returns)
+      const revenueAdjustment = match.manualRevenueAdjustment || 0;
+      const effectiveRevenue = match.shopifyTotalPrice + revenueAdjustment;
+      
+      // Skip if fully refunded (effectiveRevenue <= 0)
+      if (effectiveRevenue <= 0) {
+        console.log(`[METRICS] Skipping fully refunded order ${match.shopifyOrderName} (adjustment: ${revenueAdjustment})`);
+        continue;
+      }
+      
+      // Recalculate margin with adjusted revenue
+      const adjustedMarginAmount = effectiveRevenue - match.supplierCost;
+      const adjustedMarginPercent = effectiveRevenue > 0 
+        ? (adjustedMarginAmount / effectiveRevenue) * 100 
+        : 0;
+      
       const dateKey = match.createdAt.toISOString().split("T")[0];
 
       if (!dailyMetrics.has(dateKey)) {
@@ -92,13 +113,13 @@ export async function GET(request: NextRequest) {
       }
 
       const day = dailyMetrics.get(dateKey)!;
-      day.sales += match.shopifyTotalPrice;
-      day.marginChf += match.marginAmount;
-      day.margins.push(match.marginPercent);
+      day.sales += effectiveRevenue;
+      day.marginChf += adjustedMarginAmount;
+      day.margins.push(adjustedMarginPercent);
       day.count += 1;
 
-      totalSales += match.shopifyTotalPrice;
-      totalMargin += match.marginAmount;
+      totalSales += effectiveRevenue;
+      totalMargin += adjustedMarginAmount;
     }
 
     const data = Array.from(dailyMetrics.entries())

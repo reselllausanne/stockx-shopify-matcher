@@ -229,6 +229,13 @@ export async function POST(req: Request) {
         const priceChanged = Math.abs(newShopifyPrice - oldShopifyPrice) > 0.01;
 
         if (priceChanged) {
+          // 🔒 POC: Protect manual overrides from auto-sync
+          if (existingInDb.manualCaseStatus || existingInDb.manualRevenueAdjustment) {
+            console.log(`[SYNC] ⚠️ Manual override detected for ${shopifyItem.orderName} - skipping price update to preserve manual adjustments`);
+            skippedCount++;
+            continue;
+          }
+          
           // Recalculate margin with new price
           const supplierCost = existingInDb.supplierCost || 0;
           const newMarginAmount = newShopifyPrice - supplierCost;
@@ -244,6 +251,7 @@ export async function POST(req: Request) {
               marginAmount: newMarginAmount,
               marginPercent: newMarginPercent,
               updatedAt: new Date(),
+              // 🔒 NOTE: We explicitly do NOT touch manual fields here
             },
           });
 
