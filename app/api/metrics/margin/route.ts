@@ -28,8 +28,10 @@ export async function GET(request: NextRequest) {
           gte: startDate,
           lte: endDate,
         },
-        marginAmount: { not: null },
-        marginPercent: { not: null },
+        AND: [
+          { marginAmount: { not: null } },
+          { marginPercent: { not: null } },
+        ],
       },
       orderBy: {
         createdAt: "asc",

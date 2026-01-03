@@ -45,7 +45,7 @@ export async function GET(req: Request) {
     }
 
     const ordersQuery = `
-      query getOrders($first: Int!) {
+      query getOrders($first: Int!, $namespace: String!) {
         orders(first: $first, reverse: true) {
           edges {
             node {
@@ -58,14 +58,20 @@ export async function GET(req: Request) {
                   currencyCode
                 }
               }
-              metafields(first: 10, namespace: "supplier") {
-                edges {
-                  node {
-                    key
-                    value
-                    type
-                  }
-                }
+              stockxOrderNumber: metafield(namespace: $namespace, key: "stockx_order_number") {
+                value
+              }
+              status: metafield(namespace: $namespace, key: "stockx_status") {
+                value
+              }
+              supplierCost: metafield(namespace: $namespace, key: "supplier_cost") {
+                value
+              }
+              marginAmount: metafield(namespace: $namespace, key: "margin_amount") {
+                value
+              }
+              marginPercent: metafield(namespace: $namespace, key: "margin_percent") {
+                value
               }
             }
           }
@@ -83,7 +89,7 @@ export async function GET(req: Request) {
         },
         body: JSON.stringify({
           query: ordersQuery,
-          variables: { first: 50 },
+          variables: { first: 50, namespace: "supplier" },
         }),
       }
     );
@@ -98,26 +104,28 @@ export async function GET(req: Request) {
       const order = edge.node;
       const orderId = order.id;
       
-      // Find metafields
-      const metafields: Record<string, string> = {};
-      for (const mf of order.metafields?.edges || []) {
-        metafields[mf.node.key] = mf.node.value;
-      }
+      // Extract metafield values directly
+      const stockxOrderNumber = order.stockxOrderNumber?.value || null;
+      const status = order.status?.value || null;
+      const supplierCost = order.supplierCost?.value ? parseFloat(order.supplierCost.value) : null;
+      const marginAmount = order.marginAmount?.value ? parseFloat(order.marginAmount.value) : null;
+      const marginPercent = order.marginPercent?.value ? parseFloat(order.marginPercent.value) : null;
 
       // Find DB match
       const dbMatch = dbMatches.find((m) => m.shopifyOrderId === orderId);
 
-      if (dbMatch || Object.keys(metafields).length > 0) {
+      // Only include orders that have metafields OR DB match
+      if (dbMatch || stockxOrderNumber) {
         comparison.push({
           orderId,
           orderName: order.name,
           createdAt: order.createdAt,
           shopify: {
-            stockxOrderNumber: metafields.stockx_order_number || null,
-            status: metafields.stockx_status || null,
-            supplierCost: metafields.supplier_cost ? parseFloat(metafields.supplier_cost) : null,
-            marginAmount: metafields.margin_amount ? parseFloat(metafields.margin_amount) : null,
-            marginPercent: metafields.margin_percent ? parseFloat(metafields.margin_percent) : null,
+            stockxOrderNumber,
+            status,
+            supplierCost,
+            marginAmount,
+            marginPercent,
           },
           db: dbMatch
             ? {
