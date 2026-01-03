@@ -5,17 +5,22 @@ import { PrismaClient } from "@prisma/client";
  * Prevents multiple instances in development (hot reload)
  */
 
-const globalForPrisma = globalThis as unknown as {
-  prisma: PrismaClient | undefined;
-};
-
-export const prisma =
-  globalForPrisma.prisma ??
-  new PrismaClient({
-    log: process.env.NODE_ENV === "development" ? ["query", "error", "warn"] : ["error"],
-  });
-
-if (process.env.NODE_ENV !== "production") {
-  globalForPrisma.prisma = prisma;
+declare global {
+  // eslint-disable-next-line no-var
+  var prisma: PrismaClient | undefined;
 }
 
+const prismaClientSingleton = () => {
+  return new PrismaClient({
+    log: process.env.NODE_ENV === "development" ? ["query", "error", "warn"] : ["error"],
+  });
+};
+
+const prisma = globalThis.prisma ?? prismaClientSingleton();
+
+export default prisma;
+export { prisma };
+
+if (process.env.NODE_ENV !== "production") {
+  globalThis.prisma = prisma;
+}
