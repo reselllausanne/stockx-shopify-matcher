@@ -274,6 +274,30 @@ export async function POST(req: Request) {
                   updatedAt: new Date(),
                 },
               });
+
+              // 🚀 AUTO-SYNC TO DASHBOARD: Create/Update OrderMetric
+              try {
+                await prisma.orderMetric.upsert({
+                  where: { shopifyOrderId: shopifyItem.shopifyOrderId },
+                  update: {
+                    grossSales: shopifyRevenue,
+                    marginChf: marginAmount,
+                    marginPct: marginPercent,
+                    updatedAt: new Date(),
+                  },
+                  create: {
+                    shopifyOrderId: shopifyItem.shopifyOrderId,
+                    createdAt: new Date(shopifyItem.createdAt),
+                    grossSales: shopifyRevenue,
+                    marginChf: marginAmount,
+                    marginPct: marginPercent,
+                    currency: shopifyItem.currencyCode || "CHF",
+                  },
+                });
+                console.log(`[SYNC] 📊 Auto-synced to dashboard: ${shopifyItem.orderName}`);
+              } catch (metricError) {
+                console.error(`[SYNC] ❌ Failed to sync to dashboard:`, metricError);
+              }
               
               autoSetCount++;
               console.log(`[SYNC] ✅ Metafields auto-set for existing match: ${shopifyItem.orderName}`);
@@ -403,6 +427,23 @@ export async function POST(req: Request) {
             shopifyMetafieldsSetAt: metafieldsSynced ? new Date() : null,
           },
         });
+
+        // 🚀 AUTO-SYNC TO DASHBOARD: Create OrderMetric for new matches
+        try {
+          await prisma.orderMetric.create({
+            data: {
+              shopifyOrderId: shopifyItem.shopifyOrderId,
+              createdAt: new Date(shopifyItem.createdAt),
+              grossSales: shopifyRevenue,
+              marginChf: marginAmount,
+              marginPct: marginPercent,
+              currency: shopifyItem.currencyCode || "CHF",
+            },
+          });
+          console.log(`[SYNC] 📊 Auto-synced to dashboard: ${shopifyItem.orderName} (new)`);
+        } catch (metricError) {
+          console.error(`[SYNC] ❌ Failed to sync to dashboard:`, metricError);
+        }
 
         newMatchCount++;
         results.push({

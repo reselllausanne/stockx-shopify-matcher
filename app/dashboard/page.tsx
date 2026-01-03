@@ -43,6 +43,7 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [days, setDays] = useState(30);
+  const [syncing, setSyncing] = useState(false);
 
   const fetchMetrics = async (daysParam: number) => {
     try {
@@ -63,6 +64,56 @@ export default function DashboardPage() {
       setError(err instanceof Error ? err.message : "Unknown error");
     } finally {
       setLoading(false);
+    }
+  };
+
+  const syncMetrics = async () => {
+    try {
+      setSyncing(true);
+
+      const response = await fetch("/api/metrics/sync", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || "Failed to sync metrics");
+      }
+
+      alert(`✅ Metrics synced!\n\n${data.message}\n\nDashboard will refresh automatically.`);
+      await fetchMetrics(days); // Refresh the dashboard
+    } catch (err) {
+      console.error("Error syncing metrics:", err);
+      alert(`❌ Sync failed: ${err instanceof Error ? err.message : "Unknown error"}`);
+    } finally {
+      setSyncing(false);
+    }
+  };
+
+  const recoverFromShopify = async () => {
+    try {
+      setSyncing(true);
+
+      const response = await fetch("/api/metrics/recover-from-shopify", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || "Failed to recover from Shopify");
+      }
+
+      alert(`✅ Recovered from Shopify!\n\n${data.message}\n\nDashboard will refresh automatically.`);
+      await fetchMetrics(days); // Refresh the dashboard
+    } catch (err) {
+      console.error("Error recovering from Shopify:", err);
+      alert(`❌ Recovery failed: ${err instanceof Error ? err.message : "Unknown error"}`);
+    } finally {
+      setSyncing(false);
     }
   };
 
@@ -134,26 +185,47 @@ export default function DashboardPage() {
           </p>
         </div>
 
-        {/* Period Selector */}
-        <div className="mb-6 flex items-center gap-4">
-          <label className="text-sm font-medium text-gray-700">
-            Period:
-          </label>
-          <select
-            value={days}
-            onChange={(e) => setDays(parseInt(e.target.value))}
-            className="px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-          >
-            <option value={7}>Last 7 days</option>
-            <option value={30}>Last 30 days</option>
-            <option value={90}>Last 90 days</option>
-            <option value={365}>Last year</option>
-          </select>
-          {metrics && (
-            <span className="text-sm text-gray-500">
-              {metrics.period.startDate} to {metrics.period.endDate}
-            </span>
-          )}
+        {/* Controls */}
+        <div className="mb-6 flex flex-wrap items-center gap-4">
+          <div className="flex items-center gap-4">
+            <label className="text-sm font-medium text-gray-700">
+              Period:
+            </label>
+            <select
+              value={days}
+              onChange={(e) => setDays(parseInt(e.target.value))}
+              className="px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+            >
+              <option value={7}>Last 7 days</option>
+              <option value={30}>Last 30 days</option>
+              <option value={90}>Last 90 days</option>
+              <option value={365}>Last year</option>
+            </select>
+            {metrics && (
+              <span className="text-sm text-gray-500">
+                {metrics.period.startDate} to {metrics.period.endDate}
+              </span>
+            )}
+          </div>
+
+          <div className="flex gap-2">
+            <button
+              onClick={syncMetrics}
+              disabled={syncing}
+              className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed whitespace-nowrap font-medium"
+              title="Sync OrderMatch data to dashboard metrics"
+            >
+              {syncing ? "🔄 Syncing..." : "🔄 Sync to Dashboard"}
+            </button>
+            <button
+              onClick={recoverFromShopify}
+              disabled={syncing}
+              className="px-4 py-2 bg-orange-600 text-white rounded-md hover:bg-orange-700 disabled:bg-gray-400 disabled:cursor-not-allowed whitespace-nowrap font-medium"
+              title="Recover data from Shopify metafields if local DB is lost"
+            >
+              {syncing ? "🔄 Recovering..." : "🛟 Recover from Shopify"}
+            </button>
+          </div>
         </div>
 
         {/* Summary Cards */}

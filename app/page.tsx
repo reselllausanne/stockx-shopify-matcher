@@ -935,6 +935,24 @@ export default function Home() {
         `Auto-Set: ${data.autoSetCount || 0}`
       );
 
+      // 🚀 AUTO-SYNC TO DASHBOARD
+      try {
+        console.log("[SYNC] Auto-syncing to dashboard...");
+        const metricsRes = await fetch("/api/metrics/sync", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+        });
+
+        if (metricsRes.ok) {
+          const metricsData = await metricsRes.json();
+          console.log("[SYNC] ✅ Dashboard sync complete:", metricsData);
+        } else {
+          console.warn("[SYNC] ⚠️ Dashboard sync failed, but order sync succeeded");
+        }
+      } catch (metricsError) {
+        console.warn("[SYNC] ⚠️ Dashboard sync error:", metricsError);
+      }
+
       // Reload DB matches
       await loadFromDB();
     } catch (error: any) {
