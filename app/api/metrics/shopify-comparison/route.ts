@@ -17,7 +17,7 @@ export async function GET(req: Request) {
     const dbMatches = await prisma.orderMatch.findMany({
       where: {
         createdAt: { gte: startDate, lte: endDate },
-        shopifyMetafieldsSynced: true,
+        // Include ALL matches: synced metafields OR manual cost entries
       },
       select: {
         shopifyOrderId: true,
@@ -30,6 +30,9 @@ export async function GET(req: Request) {
         stockxStatus: true,
         shopifyCurrencyCode: true,
         createdAt: true,
+        matchType: true, // Include matchType to identify manual entries
+        manualCostOverride: true, // Include manual cost info
+        shopifyMetafieldsSynced: true, // Include sync status
       },
     });
 
@@ -122,6 +125,15 @@ export async function GET(req: Request) {
 
       // Only include orders that have metafields OR DB match
       if (dbMatch || stockxOrderNumber) {
+        const isManualCost = dbMatch?.matchType === "MANUAL_COST";
+        const matchStatus = !dbMatch 
+          ? "metafields_only" 
+          : isManualCost 
+          ? "manual_cost" 
+          : dbMatch.shopifyMetafieldsSynced 
+          ? "synced" 
+          : "db_only";
+
         comparison.push({
           orderId,
           orderName: order.name,
@@ -143,9 +155,43 @@ export async function GET(req: Request) {
                 supplierCost: dbMatch.supplierCost,
                 marginAmount: dbMatch.marginAmount,
                 marginPercent: dbMatch.marginPercent,
+                matchType: dbMatch.matchType, // Show if manual
+                manualCostOverride: dbMatch.manualCostOverride, // Show manual cost
               }
             : null,
-          match: dbMatch ? "synced" : "metafields_only",
+          match: matchStatus,
+        });
+      }
+    }
+
+    // Add DB-only matches that aren't in Shopify's recent orders
+    const shopifyOrderIds = new Set(shopifyOrders.map(e => e.node.id));
+    for (const dbMatch of dbMatches) {
+      if (!shopifyOrderIds.has(dbMatch.shopifyOrderId)) {
+        comparison.push({
+          orderId: dbMatch.shopifyOrderId,
+          orderName: dbMatch.shopifyOrderName,
+          createdAt: dbMatch.createdAt,
+          shopifySalePrice: dbMatch.shopifyTotalPrice,
+          currency: dbMatch.shopifyCurrencyCode,
+          shopify: {
+            stockxOrderNumber: null,
+            status: null,
+            supplierCost: null,
+            marginAmount: null,
+            marginPercent: null,
+          },
+          db: {
+            salePrice: dbMatch.shopifyTotalPrice,
+            stockxOrderNumber: dbMatch.stockxOrderNumber,
+            status: dbMatch.stockxStatus,
+            supplierCost: dbMatch.supplierCost,
+            marginAmount: dbMatch.marginAmount,
+            marginPercent: dbMatch.marginPercent,
+            matchType: dbMatch.matchType,
+            manualCostOverride: dbMatch.manualCostOverride,
+          },
+          match: dbMatch.matchType === "MANUAL_COST" ? "manual_cost" : "db_only",
         });
       }
     }
@@ -156,6 +202,8 @@ export async function GET(req: Request) {
         total: comparison.length,
         synced: comparison.filter((c) => c.match === "synced").length,
         metafieldsOnly: comparison.filter((c) => c.match === "metafields_only").length,
+        manualCost: comparison.filter((c) => c.match === "manual_cost").length,
+        dbOnly: comparison.filter((c) => c.match === "db_only").length,
       },
     });
   } catch (error: any) {

@@ -382,10 +382,23 @@ export default function DashboardPage() {
                               <span className="px-2 py-1 text-xs font-medium bg-green-100 text-green-800 rounded-full">
                                 ✓ Synced
                               </span>
+                            ) : item.match === "manual_cost" ? (
+                              <span className="px-2 py-1 text-xs font-medium bg-purple-100 text-purple-800 rounded-full">
+                                💰 Manual Cost
+                              </span>
+                            ) : item.match === "db_only" ? (
+                              <span className="px-2 py-1 text-xs font-medium bg-blue-100 text-blue-800 rounded-full">
+                                DB Only
+                              </span>
                             ) : (
                               <span className="px-2 py-1 text-xs font-medium bg-yellow-100 text-yellow-800 rounded-full">
                                 Metafields only
                               </span>
+                            )}
+                            {item.db?.matchType === "MANUAL_COST" && item.db?.manualCostOverride && (
+                              <div className="text-xs text-purple-600 mt-1">
+                                Override: {formatCurrency(item.db.manualCostOverride)}
+                              </div>
                             )}
                           </td>
                         </tr>
