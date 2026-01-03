@@ -1,6 +1,7 @@
 // app/api/shopify/set-metafields/route.ts
 import { NextResponse } from "next/server";
 import { shopifyGraphQL } from "@/lib/shopifyAdmin";
+import { prisma } from "@/app/lib/prisma";
 
 export const runtime = "nodejs";
 
@@ -40,6 +41,31 @@ export async function POST(req: Request) {
     const supplierCost = String(body?.supplierCost ?? "0");
     const marginAmount = String(body?.marginAmount ?? "0");
     const marginPercent = String(body?.marginPercent ?? "0");
+
+    // 🔒 CRITICAL: Check if this StockX order is already matched to a DIFFERENT Shopify order
+    const existingMatch = await prisma.orderMatch.findFirst({
+      where: {
+        stockxOrderNumber: stockxOrderNumber,
+      },
+      select: {
+        shopifyOrderId: true,
+        shopifyOrderName: true,
+      },
+    });
+
+    if (existingMatch && existingMatch.shopifyOrderId !== shopifyOrderId) {
+      console.error(
+        `[SHOPIFY] ❌ DUPLICATE PREVENTION: StockX order ${stockxOrderNumber} is already matched to Shopify order ${existingMatch.shopifyOrderName}!`
+      );
+      return NextResponse.json(
+        {
+          error: "Duplicate match prevented",
+          message: `This StockX order (${stockxOrderNumber}) is already matched to Shopify order ${existingMatch.shopifyOrderName}. Cannot match the same StockX order to multiple Shopify orders.`,
+          existingMatch: existingMatch.shopifyOrderName,
+        },
+        { status: 409 } // 409 Conflict
+      );
+    }
 
     console.log(`[SHOPIFY] Setting metafields for order ${shopifyOrderId}`);
     console.log(`  - StockX Order: ${stockxOrderNumber}`);
