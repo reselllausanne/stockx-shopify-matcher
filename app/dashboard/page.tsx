@@ -50,18 +50,21 @@ export default function DashboardPage() {
       setLoading(true);
       setError(null);
 
+      console.log(`[DASHBOARD] Fetching metrics for ${daysParam} days...`);
       const response = await fetch(`/api/metrics/margin?days=${daysParam}`);
 
       if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || "Failed to fetch metrics");
+        const errorData = await response.json().catch(() => ({}));
+        console.error("[DASHBOARD] API Error:", response.status, errorData);
+        throw new Error(errorData.error || `API Error: ${response.status}`);
       }
 
       const data: MetricsResponse = await response.json();
+      console.log("[DASHBOARD] Received data:", data);
       setMetrics(data);
     } catch (err) {
-      console.error("Error fetching metrics:", err);
-      setError(err instanceof Error ? err.message : "Unknown error");
+      console.error("[DASHBOARD] Fetch error:", err);
+      setError(err instanceof Error ? err.message : "Network error - is dev server running?");
     } finally {
       setLoading(false);
     }
@@ -117,6 +120,51 @@ export default function DashboardPage() {
     }
   };
 
+  const createTestData = async () => {
+    try {
+      setSyncing(true);
+
+      // Create some test OrderMetric data
+      const testData = [];
+      const today = new Date();
+
+      // Create 10 days of test data
+      for (let i = 0; i < 10; i++) {
+        const date = new Date(today);
+        date.setDate(today.getDate() - i);
+
+        testData.push({
+          shopifyOrderId: `test-order-${i}`,
+          createdAt: date.toISOString(),
+          grossSales: Math.round((Math.random() * 500 + 100) * 100) / 100, // 100-600 CHF
+          marginChf: Math.round((Math.random() * 100 + 20) * 100) / 100, // 20-120 CHF margin
+          marginPct: Math.round((Math.random() * 20 + 10) * 100) / 100, // 10-30% margin
+          currency: "CHF"
+        });
+      }
+
+      // Call an API to insert this test data
+      const response = await fetch("/api/metrics/test-data", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ testData }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || "Failed to create test data");
+      }
+
+      alert(`✅ Test data created!\n\nAdded 10 days of sample margin data.\n\nDashboard will refresh automatically.`);
+      await fetchMetrics(days); // Refresh the dashboard
+    } catch (err) {
+      console.error("Error creating test data:", err);
+      alert(`❌ Failed to create test data: ${err instanceof Error ? err.message : "Unknown error"}`);
+    } finally {
+      setSyncing(false);
+    }
+  };
+
   useEffect(() => {
     fetchMetrics(days);
   }, [days]);
@@ -161,13 +209,35 @@ export default function DashboardPage() {
             <h2 className="text-xl font-semibold text-red-800 mb-2">
               Unable to Load Dashboard
             </h2>
-            <p className="text-red-600">{error}</p>
-            <button
-              onClick={() => fetchMetrics(days)}
-              className="mt-4 px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700"
-            >
-              Try Again
-            </button>
+            <p className="text-red-600 mb-4">{error}</p>
+
+            {error.includes("Network error") || error.includes("fetch") ? (
+              <div className="mb-4 p-4 bg-yellow-50 border border-yellow-200 rounded">
+                <h3 className="font-semibold text-yellow-800 mb-2">🚀 Dev Server Not Running?</h3>
+                <p className="text-yellow-700 text-sm mb-2">
+                  The development server needs to be running to access the dashboard.
+                </p>
+                <code className="bg-gray-100 px-2 py-1 rounded text-sm">
+                  cd "/Users/theomanzinali/Code scrapping price " && npm run dev
+                </code>
+              </div>
+            ) : null}
+
+            <div className="space-x-2">
+              <button
+                onClick={() => fetchMetrics(days)}
+                className="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700"
+              >
+                Try Again
+              </button>
+              <button
+                onClick={createTestData}
+                disabled={syncing}
+                className="px-4 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700 disabled:bg-gray-400"
+              >
+                {syncing ? "Creating..." : "🧪 Create Test Data"}
+              </button>
+            </div>
           </div>
         </div>
       </div>
@@ -208,7 +278,7 @@ export default function DashboardPage() {
             )}
           </div>
 
-          <div className="flex gap-2">
+          <div className="flex gap-2 flex-wrap">
             <button
               onClick={syncMetrics}
               disabled={syncing}
@@ -224,6 +294,14 @@ export default function DashboardPage() {
               title="Recover data from Shopify metafields if local DB is lost"
             >
               {syncing ? "🔄 Recovering..." : "🛟 Recover from Shopify"}
+            </button>
+            <button
+              onClick={createTestData}
+              disabled={syncing}
+              className="px-4 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700 disabled:bg-gray-400 disabled:cursor-not-allowed whitespace-nowrap font-medium"
+              title="Create sample margin data for testing the dashboard"
+            >
+              {syncing ? "🔄 Creating..." : "🧪 Create Test Data"}
             </button>
           </div>
         </div>
@@ -373,10 +451,35 @@ export default function DashboardPage() {
             <h3 className="text-xl font-semibold text-gray-900 mb-2">
               No Margin Data Available
             </h3>
-            <p className="text-gray-600">
+            <p className="text-gray-600 mb-4">
               No orders with margin data found in the last {days} days.
               Margin data is automatically collected when orders are matched and synced.
             </p>
+            <div className="space-y-2">
+              <p className="text-sm text-gray-500">Try these options:</p>
+              <div className="flex justify-center gap-2 flex-wrap">
+                <button
+                  onClick={syncMetrics}
+                  disabled={syncing}
+                  className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 disabled:bg-gray-400 text-sm"
+                >
+                  {syncing ? "Syncing..." : "🔄 Sync from DB"}
+                </button>
+                <button
+                  onClick={createTestData}
+                  disabled={syncing}
+                  className="px-4 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700 disabled:bg-gray-400 text-sm"
+                >
+                  {syncing ? "Creating..." : "🧪 Create Test Data"}
+                </button>
+                <a
+                  href="/"
+                  className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 text-sm inline-block"
+                >
+                  📦 Match Orders First
+                </a>
+              </div>
+            </div>
           </div>
         )}
       </div>
