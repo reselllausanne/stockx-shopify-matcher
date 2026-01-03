@@ -230,11 +230,12 @@ export async function POST(req: Request) {
 
         if (priceChanged) {
           // Recalculate margin with new price
-          const supplierCost = existingInDb.stockxOfferAmount;
+          const supplierCost = existingInDb.supplierCost || 0;
           const newMarginAmount = newShopifyPrice - supplierCost;
           const newMarginPercent = newShopifyPrice > 0 ? (newMarginAmount / newShopifyPrice) * 100 : 0;
 
           console.log(`[SYNC] 💰 Price changed: CHF ${oldShopifyPrice.toFixed(2)} → CHF ${newShopifyPrice.toFixed(2)} (updating DB)`);
+          console.log(`[SYNC] 📊 New margin: CHF ${newMarginAmount.toFixed(2)} (${newMarginPercent.toFixed(2)}%)`);
 
           await prisma.orderMatch.update({
             where: { id: existingInDb.id },
