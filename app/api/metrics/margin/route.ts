@@ -127,16 +127,28 @@ export async function GET(request: NextRequest) {
   } catch (error) {
     console.error("[METRICS] Error fetching margin metrics:", error);
 
+    // Always return the actual error message for debugging
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    
     // Check if it's a database error
-    if (error instanceof Error && error.message.includes("no such table")) {
+    if (errorMessage.includes("no such table")) {
       return NextResponse.json(
-        { error: "DB unavailable - OrderMetric table not found" },
+        { 
+          error: "OrderMetric table not found", 
+          details: errorMessage,
+          hint: "Run database migrations or create test data first"
+        },
         { status: 503 }
       );
     }
 
+    // Return full error details for debugging
     return NextResponse.json(
-      { error: "Failed to fetch margin metrics" },
+      { 
+        error: "Failed to fetch margin metrics",
+        details: errorMessage,
+        stack: error instanceof Error ? error.stack : undefined
+      },
       { status: 500 }
     );
   }
