@@ -559,11 +559,23 @@ export default function Home() {
             (order) => !usedStockXNumbers.has(order.stockxOrderNumber)
           );
           
-          console.log(`🔒 Filtered out ${beforeCount - availableStockX.length} already-matched StockX orders`);
+          const filteredOut = normalizedStockX.filter(
+            (order) => usedStockXNumbers.has(order.stockxOrderNumber)
+          );
+          
+          console.log(`🔒 DB has ${dbData.matches.length} total matches`);
+          console.log(`🔒 Filtered out ${beforeCount - availableStockX.length} already-matched StockX orders:`, 
+            filteredOut.map(o => o.stockxOrderNumber).join(", "));
           console.log(`✅ ${availableStockX.length} StockX orders available for matching`);
+          
+          if (availableStockX.length === 0 && normalizedStockX.length > 0) {
+            console.warn(`⚠️ WARNING: All ${normalizedStockX.length} StockX orders are already matched!`);
+          }
+        } else {
+          console.error("❌ Failed to fetch DB matches, showing all StockX orders");
         }
       } catch (err) {
-        console.warn("Could not fetch DB matches, showing all StockX orders:", err);
+        console.error("❌ Error fetching DB matches, showing all StockX orders:", err);
       }
 
       // Run matching (only with AVAILABLE StockX orders)
@@ -882,7 +894,9 @@ export default function Home() {
         if (saveRes.ok) {
           console.log(`[METAFIELDS] ✅ Match saved to database`);
         } else {
-          console.error(`[METAFIELDS] ❌ Failed to save to database`);
+          const errorData = await saveRes.json().catch(() => ({}));
+          console.error(`[METAFIELDS] ❌ Failed to save to database:`, errorData);
+          console.error(`Status: ${saveRes.status}, Error:`, errorData.error || errorData);
         }
       } catch (dbError: any) {
         console.error("[METAFIELDS] Database save error:", dbError);
