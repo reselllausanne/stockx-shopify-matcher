@@ -1055,8 +1055,15 @@ export default function Home() {
   // Create manual cost-only entry (for liquidation / Essential Hoodie)
   const createManualCostEntry = async (shopifyItem: ShopifyLineItem) => {
     const isLiquidation = /%/.test(shopifyItem.title);
-    const isEssentialHoodie = shopifyItem.sku && 
-      ["FWUG24K102NA", "FWUG24K101NA", "FWUG24K103NA"].includes(shopifyItem.sku);
+    
+    // Detect Essential Hoodies by name or SKU
+    const titleLower = shopifyItem.title.toLowerCase();
+    const isFearOfGodEssentials = titleLower.includes("fear of god essentials") || titleLower.includes("fog essentials");
+    const isHoodie = titleLower.includes("hoodie");
+    const matchesEssentialSKU = shopifyItem.sku && 
+      (["FWUG24K102NA", "FWUG24K101NA", "FWUG24K103NA"].includes(shopifyItem.sku) || 
+       /^192HO\d{6}F-/.test(shopifyItem.sku));
+    const isEssentialHoodie = (isFearOfGodEssentials && isHoodie) || matchesEssentialSKU;
 
     let supplierCost: number;
 
@@ -2197,8 +2204,15 @@ export default function Home() {
                 const shopify = result.shopifyItem;
                 const match = result.bestMatch;
                 const isLiquidation = /%/.test(shopify.title);
-                const isEssentialHoodie = shopify.sku && 
-                  ["FWUG24K102NA", "FWUG24K101NA", "FWUG24K103NA"].includes(shopify.sku);
+                
+                // Detect Essential Hoodies by name or SKU
+                const titleLower = shopify.title.toLowerCase();
+                const isFearOfGodEssentials = titleLower.includes("fear of god essentials") || titleLower.includes("fog essentials");
+                const isHoodie = titleLower.includes("hoodie");
+                const matchesEssentialSKU = shopify.sku && 
+                  (["FWUG24K102NA", "FWUG24K101NA", "FWUG24K103NA"].includes(shopify.sku) || 
+                   /^192HO\d{6}F-/.test(shopify.sku));
+                const isEssentialHoodie = (isFearOfGodEssentials && isHoodie) || matchesEssentialSKU;
 
                 return (
                   <div

@@ -226,10 +226,21 @@ export async function POST(req: Request) {
 
       // 🎯 AUTO-ADD: Essential Hoodies with 42 CHF cost
       if (!existingInDb) {
-        const essentialSkus = ["FWUG24K102NA", "FWUG24K101NA", "FWUG24K103NA"];
-        const isEssentialHoodie = shopifyItem.sku && essentialSkus.includes(shopifyItem.sku);
+        // Check by product name AND/OR SKU pattern
+        const titleLower = shopifyItem.title.toLowerCase();
+        const isFearOfGodEssentials = titleLower.includes("fear of god essentials") || titleLower.includes("fog essentials");
+        const isHoodie = titleLower.includes("hoodie");
         
-        console.log(`[SYNC] 🔍 Essential Hoodie check: SKU=${shopifyItem.sku}, Match=${isEssentialHoodie}`);
+        // Also check specific SKU patterns
+        const essentialSkus = ["FWUG24K102NA", "FWUG24K101NA", "FWUG24K103NA"];
+        const matchesSKU = shopifyItem.sku && essentialSkus.includes(shopifyItem.sku);
+        
+        // Also check for SKU patterns like "192HO246258F-M"
+        const matchesSkuPattern = shopifyItem.sku && /^192HO\d{6}F-/.test(shopifyItem.sku);
+        
+        const isEssentialHoodie = (isFearOfGodEssentials && isHoodie) || matchesSKU || matchesSkuPattern;
+        
+        console.log(`[SYNC] 🔍 Essential Hoodie check: Title="${shopifyItem.title}", SKU=${shopifyItem.sku}, Match=${isEssentialHoodie} (FoG=${isFearOfGodEssentials}, Hoodie=${isHoodie}, SKU=${matchesSKU || matchesSkuPattern})`);
 
         if (isEssentialHoodie) {
           const supplierCost = 42;
