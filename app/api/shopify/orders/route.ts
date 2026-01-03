@@ -102,34 +102,43 @@ export async function POST(req: Request) {
       const displayFulfillmentStatus = o.displayFulfillmentStatus ?? null;
       const customerName = o.customer?.displayName ?? null;
 
-      // Get order-level total (AFTER all discounts including order-level codes)
+      // CRITICAL: Use ORDER-level currentTotalPriceSet (what customer actually pays)
       const orderTotal = o.currentTotalPriceSet?.shopMoney;
-      const orderSubtotal = o.currentSubtotalPriceSet?.shopMoney;
-      
-      const liEdges = o.lineItems?.edges ?? [];
-      
-      // Calculate order-level discount ratio
       const orderTotalAmount = orderTotal?.amount ? parseFloat(orderTotal.amount) : 0;
-      const orderSubtotalAmount = orderSubtotal?.amount ? parseFloat(orderSubtotal.amount) : 0;
-      const orderDiscountRatio = orderSubtotalAmount > 0 
-        ? orderTotalAmount / orderSubtotalAmount 
-        : 1;
+      const orderCurrency = orderTotal?.currencyCode || "CHF";
+
+      const liEdges = o.lineItems?.edges ?? [];
+      const lineItemCount = liEdges.length;
+
+      // Calculate line item sum for proportional allocation
+      let lineItemTotalSum = 0;
+      if (lineItemCount > 1) {
+        for (const liE of liEdges) {
+          const liTotal = liE.node.discountedTotalSet?.shopMoney?.amount;
+          lineItemTotalSum += liTotal ? parseFloat(liTotal) : 0;
+        }
+      }
 
       for (const liE of liEdges) {
         const li = liE.node;
 
-        // Start with line-item discounted total
         const discounted = li.discountedTotalSet?.shopMoney;
-        const currencyCode = discounted?.currencyCode || orderTotal?.currencyCode || "CHF";
-        const lineDiscountedAmount = discounted?.amount ? parseFloat(discounted.amount) : 0;
-        
-        // Apply order-level discount ratio to get FINAL price
-        const finalAmount = lineDiscountedAmount * orderDiscountRatio;
-        const totalAmount = finalAmount.toFixed(2);
-
         const qty = Number(li.quantity ?? 0);
-        const unitAmount =
-          qty > 0 ? (finalAmount / qty).toFixed(2) : totalAmount;
+
+        // Calculate REAL line total (proportional share of order total)
+        let realLineTotal: number;
+        if (lineItemCount === 1) {
+          // Single item: use full order total
+          realLineTotal = orderTotalAmount;
+        } else {
+          // Multiple items: proportional allocation
+          const lineDiscounted = discounted?.amount ? parseFloat(discounted.amount) : 0;
+          const proportion = lineItemTotalSum > 0 ? lineDiscounted / lineItemTotalSum : 0;
+          realLineTotal = orderTotalAmount * proportion;
+        }
+
+        const totalAmount = realLineTotal.toFixed(2);
+        const unitAmount = qty > 0 ? (realLineTotal / qty).toFixed(2) : totalAmount;
 
         const variantTitle = li.variantTitle ?? null;
         const productName = li.name ?? "—";
@@ -150,9 +159,9 @@ export async function POST(req: Request) {
           variantTitle,
           sizeEU,
           quantity: qty,
-          price: unitAmount,      // AFTER all discounts (line + order level)
-          totalPrice: totalAmount, // AFTER all discounts (line + order level)
-          currencyCode,
+          price: unitAmount,      // From ORDER total (all discounts)
+          totalPrice: totalAmount, // From ORDER total (all discounts)
+          currencyCode: orderCurrency,
         });
       }
     }
