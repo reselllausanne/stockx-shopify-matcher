@@ -149,15 +149,10 @@ function stringSimilarity(str1: string, str2: string): number {
   return union.size > 0 ? intersection.size / union.size : 0;
 }
 
-/**
- * Calculate SIGNED time difference (StockX - Shopify)
- * Positive = StockX after Shopify (normal dropship flow)
- * Negative = StockX before Shopify (should be filtered by causal check)
- */
-function calculateSignedTimeDiffHours(shopifyDate: string, stockxDate: string): number {
-  const shopify = new Date(shopifyDate).getTime();
-  const stockx = new Date(stockxDate).getTime();
-  return (stockx - shopify) / (1000 * 60 * 60); // signed hours
+function calculateTimeDiff(shopifyDate: string, stockxDate: string): number {
+  const d1 = new Date(shopifyDate).getTime();
+  const d2 = new Date(stockxDate).getTime();
+  return Math.abs(d1 - d2) / (1000 * 60 * 60); // hours
 }
 
 function scoreTimeProximity(hours: number): number {
@@ -165,6 +160,44 @@ function scoreTimeProximity(hours: number): number {
   if (hours <= 48) return 15;
   if (hours <= 96) return 10;
   return 0;
+}
+
+/**
+ * 🔐 CAUSAL HARD FILTER: StockX order MUST be created AFTER Shopify order
+ * 
+ * Logic: In dropshipping model:
+ * 1. Customer places Shopify order (sale)
+ * 2. You buy from StockX to fulfill it (purchase)
+ * 
+ * Therefore: stockxCreated MUST be >= shopifyCreated (with small tolerance for clock skew)
+ * 
+ * @param shopifyDate - Shopify order creation date (ISO)
+ * @param stockxDate - StockX order creation date (ISO)
+ * @param toleranceMinutes - Allow small clock skew (default 5 minutes)
+ * @returns true if causal order is valid (StockX after Shopify)
+ */
+function isValidCausalOrder(
+  shopifyDate: string, 
+  stockxDate: string,
+  toleranceMinutes: number = 5
+): boolean {
+  const shopifyTime = new Date(shopifyDate).getTime();
+  const stockxTime = new Date(stockxDate).getTime();
+  const toleranceMs = toleranceMinutes * 60 * 1000;
+  
+  // StockX must be created AFTER Shopify (with tolerance for clock skew)
+  // If StockX is more than 5 minutes BEFORE Shopify → INVALID
+  const isValid = stockxTime >= (shopifyTime - toleranceMs);
+  
+  if (!isValid) {
+    const diffMinutes = (shopifyTime - stockxTime) / (1000 * 60);
+    console.log(
+      `[CAUSAL] ❌ REJECTED: StockX order created ${diffMinutes.toFixed(1)} minutes ` +
+      `BEFORE Shopify order (violates dropship causality)`
+    );
+  }
+  
+  return isValid;
 }
 
 export function matchShopifyToStockX(
@@ -205,7 +238,7 @@ export function matchShopifyToStockX(
   for (const stockxOrder of stockxOrders) {
     const reasons: string[] = [];
 
-    // HARD FILTER 1: Product name must match strictly (>=95% word overlap)
+    // HARD FILTER 1: Product name must match 100% (or 95%+ strict)
     const nameMatches = productNameMatch(shopifyTitleClean, stockxOrder.productTitle);
     if (!nameMatches) {
       continue; // Skip this candidate entirely
@@ -268,12 +301,10 @@ export function matchShopifyToStockX(
     // Now candidate passed ALL hard filters, calculate score for ranking
 
     // Time proximity (main differentiator)
-    // Calculate signed diff (StockX - Shopify), then clamp to 0 for scoring
-    const signedDiffHours = calculateSignedTimeDiffHours(
+    const timeDiffHours = calculateTimeDiff(
       shopifyItem.createdAt,
       stockxOrder.purchaseDate
     );
-    const timeDiffHours = Math.max(0, signedDiffHours); // Clamp to 0 (negative already filtered)
     
     let score = 0;
     
@@ -343,21 +374,18 @@ export function matchShopifyToStockX(
 
   let bestMatch = candidates.length > 0 ? candidates[0] : null;
   
-  // 🔐 AMBIGUITY DETECTION: If top1 and top2 are too similar, downgrade to MEDIUM
-  // Prevents auto-matching when there's uncertainty between multiple candidates
+  // 🔐 AMBIGUITY DETECTION: If top1 and top2 scores are too close, downgrade to MEDIUM
+  // This prevents auto-matching when there's uncertainty between multiple candidates
   if (bestMatch && candidates.length >= 2) {
-    const top1 = candidates[0];
-    const top2 = candidates[1];
-    const scoreDiff = top1.score - top2.score;
-    const timeDiff = Math.abs(top1.timeDiffHours - top2.timeDiffHours);
+    const top1Score = candidates[0].score;
+    const top2Score = candidates[1].score;
+    const scoreDiff = top1Score - top2Score;
     
-    // Ambiguous if: scores within 10 points OR time diff < 1 hour
-    const isAmbiguous = scoreDiff < 10 || timeDiff < 1;
-    
-    if (isAmbiguous && bestMatch.confidence === "high") {
+    // If scores are within 10 points of each other → ambiguous
+    if (scoreDiff < 10 && bestMatch.confidence === "high") {
       console.log(
-        `[MATCH] ⚠️ AMBIGUOUS: Top 2 candidates too similar ` +
-        `(score diff: ${scoreDiff}, time diff: ${timeDiff.toFixed(1)}h) - downgrading to MEDIUM for manual review`
+        `[MATCH] ⚠️ AMBIGUOUS: Top 2 candidates have close scores ` +
+        `(${top1Score} vs ${top2Score}, diff: ${scoreDiff}) - downgrading to MEDIUM for manual review`
       );
       
       // Downgrade confidence to force manual review
@@ -366,7 +394,7 @@ export function matchShopifyToStockX(
         confidence: "medium",
         reasons: [
           ...bestMatch.reasons,
-          `⚠️ Ambiguous (score diff: ${scoreDiff}, time diff: ${timeDiff.toFixed(1)}h)`
+          `⚠️ Ambiguous (top2 score diff: ${scoreDiff})`
         ]
       };
     }
