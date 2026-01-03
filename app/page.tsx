@@ -924,6 +924,7 @@ export default function Home() {
     status: string;
     adjustment: string;
     note: string;
+    manualCost: string;
   }>>({});
   const [manualOverrideLoading, setManualOverrideLoading] = useState<Record<string, boolean>>({});
 
@@ -1051,13 +1052,121 @@ export default function Home() {
     }
   };
 
-  // Apply manual override (for refunds/returns)
+  // Create manual cost-only entry (for liquidation / Essential Hoodie)
+  const createManualCostEntry = async (shopifyItem: ShopifyLineItem) => {
+    const isLiquidation = /%/.test(shopifyItem.title);
+    const isEssentialHoodie = shopifyItem.sku && 
+      ["FWUG24K102NA", "FWUG24K101NA", "FWUG24K103NA"].includes(shopifyItem.sku);
+
+    const autoSupplierCost = isEssentialHoodie ? 42 : null;
+    
+    const promptMessage = isLiquidation
+      ? `💰 Liquidation Order: ${shopifyItem.title}\n\nEnter your buy price (supplier cost) in CHF:`
+      : isEssentialHoodie
+      ? `💰 Essential Hoodie: ${shopifyItem.title}\n\nAuto-set cost to 42 CHF or enter custom:`
+      : `💰 Manual Cost Entry: ${shopifyItem.title}\n\nEnter supplier cost in CHF:`;
+
+    const defaultValue = autoSupplierCost ? String(autoSupplierCost) : "";
+    const supplierCostInput = prompt(promptMessage, defaultValue);
+
+    if (!supplierCostInput) return;
+
+    const supplierCost = parseFloat(supplierCostInput);
+    if (isNaN(supplierCost) || supplierCost < 0) {
+      alert("❌ Invalid cost. Please enter a positive number.");
+      return;
+    }
+
+    const revenue = parseFloat(shopifyItem.totalPrice);
+    const margin = revenue - supplierCost;
+    const marginPercent = revenue > 0 ? (margin / revenue) * 100 : 0;
+
+    const confirmMessage = 
+      `📝 Create Manual Cost Entry?\n\n` +
+      `Order: ${shopifyItem.orderName}\n` +
+      `Product: ${shopifyItem.title}\n` +
+      `Size: ${shopifyItem.sizeEU || "N/A"}\n\n` +
+      `💰 Financial Summary:\n` +
+      `Revenue: CHF ${revenue.toFixed(2)}\n` +
+      `Supplier Cost: CHF ${supplierCost.toFixed(2)}\n` +
+      `Margin: CHF ${margin.toFixed(2)} (${marginPercent.toFixed(1)}%)\n\n` +
+      `⚠️ This will:\n` +
+      `✅ Add to dashboard metrics\n` +
+      `✅ Mark as "MANUAL_COST" (no StockX link)\n` +
+      `❌ NOT appear in fulfillment queue\n` +
+      `${isLiquidation ? "✅ Track liquidation sale\n" : ""}` +
+      `${isEssentialHoodie ? "✅ Track Essential Hoodie with 42 CHF cost\n" : ""}`;
+
+    if (!confirm(confirmMessage)) return;
+
+    try {
+      const res = await fetch("/api/db/save-match", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          shopifyOrderId: shopifyItem.shopifyOrderId,
+          shopifyOrderName: shopifyItem.orderName,
+          shopifyLineItemId: shopifyItem.lineItemId,
+          shopifyProductTitle: shopifyItem.title,
+          shopifySku: shopifyItem.sku,
+          shopifySizeEU: shopifyItem.sizeEU,
+          shopifyTotalPrice: revenue,
+          shopifyCurrencyCode: shopifyItem.currencyCode,
+          stockxOrderNumber: null, // Will be auto-generated as MANUAL-xxx
+          stockxProductName: shopifyItem.title,
+          stockxSizeEU: shopifyItem.sizeEU,
+          stockxSkuKey: shopifyItem.sku,
+          matchConfidence: "manual",
+          matchScore: 100,
+          matchType: "MANUAL_COST",
+          matchReasons: [isLiquidation ? "Liquidation order (% in title)" : isEssentialHoodie ? "Essential Hoodie (auto 42 CHF)" : "Manual cost entry"],
+          timeDiffHours: 0,
+          stockxStatus: "MANUAL_COST_ONLY",
+          stockxEstimatedDelivery: null,
+          supplierCost,
+          marginAmount: margin,
+          marginPercent,
+          manualCostOverride: supplierCost,
+          shopifyMetafieldsSynced: false,
+        }),
+      });
+
+      const result = await res.json();
+
+      if (!res.ok) {
+        alert(`❌ Failed to create entry:\n\n${result.error}\n\n${result.details || ""}`);
+        return;
+      }
+
+      alert(
+        `✅ Manual cost entry created!\n\n` +
+        `Order: ${shopifyItem.orderName}\n` +
+        `Product: ${shopifyItem.title}\n` +
+        `Revenue: CHF ${revenue.toFixed(2)}\n` +
+        `Cost: CHF ${supplierCost.toFixed(2)}\n` +
+        `Margin: CHF ${margin.toFixed(2)} (${marginPercent.toFixed(1)}%)\n\n` +
+        `✅ Added to dashboard\n` +
+        `🔒 Won't appear in fulfillment`
+      );
+
+      // Reload to show new entry
+      await loadFromDB();
+
+    } catch (error: any) {
+      console.error("[MANUAL_COST] Error:", error);
+      alert(`❌ Error creating entry:\n\n${error.message}`);
+    }
+  };
+
+  // Apply manual override (for refunds/returns/manual costs)
   const applyManualOverride = async (matchId: string, match: any) => {
     const data = manualOverrideData[matchId];
     if (!data) return;
 
     const adjustment = parseFloat(data.adjustment || "0");
+    const manualCost = data.manualCost ? parseFloat(data.manualCost) : null;
     const effectiveRevenue = match.shopifyTotalPrice + adjustment;
+    const effectiveCost = manualCost !== null ? manualCost : match.supplierCost;
 
     const confirmMessage = 
       `📝 Apply Manual Override?\n\n` +
@@ -1065,13 +1174,14 @@ export default function Home() {
       `Product: ${match.shopifyProductTitle}\n\n` +
       `Status: ${data.status || "ACTIVE (default)"}\n` +
       `Revenue Adjustment: CHF ${adjustment.toFixed(2)}\n` +
+      (manualCost !== null ? `Manual Supplier Cost: CHF ${manualCost.toFixed(2)}\n` : "") +
       `Note: ${data.note || "(none)"}\n\n` +
       `💰 Financial Impact:\n` +
       `Original Revenue: CHF ${match.shopifyTotalPrice.toFixed(2)}\n` +
       `Adjusted Revenue: CHF ${effectiveRevenue.toFixed(2)}\n` +
-      `Supplier Cost: CHF ${match.supplierCost.toFixed(2)}\n` +
-      `Adjusted Margin: CHF ${(effectiveRevenue - match.supplierCost).toFixed(2)}\n\n` +
-      `⚠️ This will protect this match from auto-sync updates.`;
+      `Supplier Cost: CHF ${effectiveCost.toFixed(2)}\n` +
+      `Adjusted Margin: CHF ${(effectiveRevenue - effectiveCost).toFixed(2)} (${((effectiveRevenue - effectiveCost) / effectiveRevenue * 100).toFixed(1)}%)\n\n` +
+      `⚠️ This will ${manualCost !== null ? "mark as MANUAL COST (no StockX) and " : ""}protect this match from auto-sync updates.`;
 
     if (!confirm(confirmMessage)) return;
 
@@ -1086,6 +1196,7 @@ export default function Home() {
           manualCaseStatus: data.status || null,
           manualRevenueAdjustment: adjustment,
           manualNote: data.note || null,
+          manualSupplierCost: manualCost,
         }),
       });
 
@@ -1099,15 +1210,16 @@ export default function Home() {
       alert(
         `✅ Manual override applied!\n\n` +
         `Order: ${match.shopifyOrderName}\n` +
-        `Effective Revenue: CHF ${result.match.effectiveRevenue.toFixed(2)}\n` +
-        `Effective Margin: CHF ${result.match.effectiveMargin.toFixed(2)} (${result.match.effectiveMarginPct.toFixed(1)}%)\n\n` +
+        `Effective Revenue: CHF ${result.updatedMatch.shopifyTotalPrice + (result.updatedMatch.manualRevenueAdjustment || 0)}\n` +
+        `Supplier Cost: CHF ${result.updatedMatch.supplierCost.toFixed(2)}\n` +
+        `Margin: CHF ${result.updatedMatch.marginAmount.toFixed(2)} (${result.updatedMatch.marginPercent.toFixed(1)}%)\n\n` +
         `✅ Dashboard will reflect this change immediately.\n` +
         `🔒 Auto-sync will NOT overwrite this.`
       );
 
       // Collapse and clear form
       setManualOverrideExpanded(prev => ({ ...prev, [matchId]: false }));
-      setManualOverrideData(prev => ({ ...prev, [matchId]: { status: "", adjustment: "", note: "" } }));
+      setManualOverrideData(prev => ({ ...prev, [matchId]: { status: "", adjustment: "", note: "", manualCost: "" } }));
 
       // Reload matches to show updated data
       await loadFromDB();
@@ -1884,7 +1996,7 @@ export default function Home() {
                                   <h4 className="font-semibold text-orange-900 mb-3">
                                     💰 Manual Override: {match.shopifyOrderName}
                                   </h4>
-                                  <div className="grid grid-cols-2 gap-4 mb-4">
+                                  <div className="grid grid-cols-3 gap-4 mb-4">
                                     <div>
                                       <label className="block text-xs font-medium text-gray-700 mb-1">
                                         Case Status
@@ -1921,6 +2033,26 @@ export default function Home() {
                                       <p className="text-xs text-gray-500 mt-1">
                                         Original: CHF {match.shopifyTotalPrice.toFixed(2)}
                                         {data.adjustment && ` → CHF ${(match.shopifyTotalPrice + parseFloat(data.adjustment || "0")).toFixed(2)}`}
+                                      </p>
+                                    </div>
+                                    <div>
+                                      <label className="block text-xs font-medium text-gray-700 mb-1">
+                                        Manual Supplier Cost (CHF)
+                                      </label>
+                                      <input
+                                        type="number"
+                                        step="0.01"
+                                        value={data.manualCost}
+                                        onChange={(e) => setManualOverrideData(prev => ({
+                                          ...prev,
+                                          [match.id]: { ...prev[match.id] || {}, manualCost: e.target.value }
+                                        }))}
+                                        placeholder="Leave blank to keep current"
+                                        className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm font-mono"
+                                      />
+                                      <p className="text-xs text-gray-500 mt-1">
+                                        Current: CHF {match.supplierCost.toFixed(2)}
+                                        {data.manualCost && ` → CHF ${parseFloat(data.manualCost).toFixed(2)}`}
                                       </p>
                                     </div>
                                   </div>
@@ -1960,8 +2092,11 @@ export default function Home() {
                                       <li><strong>Full refund:</strong> Set adjustment to -{match.shopifyTotalPrice.toFixed(2)}</li>
                                       <li><strong>Partial refund:</strong> Set adjustment to negative amount (e.g., -50)</li>
                                       <li><strong>Store credit:</strong> Set status to CLOSED_CREDIT</li>
+                                      <li><strong>Liquidation (%):</strong> Set manual cost to your buy price (e.g., 80)</li>
+                                      <li><strong>Essential Hoodie:</strong> Auto 42 CHF cost (or override manually)</li>
                                       <li><strong>Dashboard:</strong> Will show adjusted margin immediately</li>
                                       <li><strong>Auto-sync:</strong> Will NOT overwrite manual fields</li>
+                                      <li><strong>Fulfillment:</strong> Manual cost items won't auto-match StockX</li>
                                     </ul>
                                   </div>
                                 </div>

@@ -39,29 +39,45 @@ export async function POST(req: Request) {
     } = body;
 
     // Validation
-    if (!shopifyLineItemId || !stockxOrderNumber) {
+    if (!shopifyLineItemId) {
       return NextResponse.json(
-        { error: "Missing required fields: shopifyLineItemId, stockxOrderNumber" },
+        { error: "Missing required field: shopifyLineItemId" },
         { status: 400 }
       );
     }
 
-    console.log(`[DB] Upserting match: ${shopifyOrderName} → ${stockxOrderNumber}`);
+    // Manual cost entries don't need StockX order number
+    const isManualCostEntry = matchType === "MANUAL_COST" || (!stockxOrderNumber && manualCostOverride);
+    
+    if (!isManualCostEntry && !stockxOrderNumber) {
+      return NextResponse.json(
+        { error: "Missing required field: stockxOrderNumber (unless manual cost entry)" },
+        { status: 400 }
+      );
+    }
+
+    console.log(`[DB] ${isManualCostEntry ? "Creating manual cost entry" : "Upserting match"}: ${shopifyOrderName} → ${stockxOrderNumber || "MANUAL_COST"}`);
+
+    // For manual cost entries, use placeholder StockX values
+    const finalStockxOrderNumber = stockxOrderNumber || `MANUAL-${shopifyLineItemId.slice(-8)}`;
+    const finalStockxProductName = stockxProductName || shopifyProductTitle;
+    const finalStockxStatus = stockxStatus || "MANUAL_COST_ONLY";
+    const finalMatchType = isManualCostEntry ? "MANUAL_COST" : matchType;
 
     // Upsert (create or update)
     const match = await prisma.orderMatch.upsert({
       where: { shopifyLineItemId },
       update: {
-        stockxOrderNumber,
-        stockxProductName,
+        stockxOrderNumber: finalStockxOrderNumber,
+        stockxProductName: finalStockxProductName,
         stockxSizeEU,
         stockxSkuKey,
         matchConfidence,
         matchScore,
-        matchType,
+        matchType: finalMatchType,
         matchReasons: JSON.stringify(matchReasons || []),
         timeDiffHours,
-        stockxStatus,
+        stockxStatus: finalStockxStatus,
         stockxEstimatedDelivery,
         supplierCost,
         marginAmount,
@@ -81,16 +97,16 @@ export async function POST(req: Request) {
         shopifySizeEU: shopifySizeEU || null,
         shopifyTotalPrice,
         shopifyCurrencyCode: shopifyCurrencyCode || "CHF",
-        stockxOrderNumber,
-        stockxProductName,
+        stockxOrderNumber: finalStockxOrderNumber,
+        stockxProductName: finalStockxProductName,
         stockxSizeEU: stockxSizeEU || null,
         stockxSkuKey: stockxSkuKey || null,
         matchConfidence,
         matchScore,
-        matchType,
+        matchType: finalMatchType,
         matchReasons: JSON.stringify(matchReasons || []),
         timeDiffHours,
-        stockxStatus,
+        stockxStatus: finalStockxStatus,
         stockxEstimatedDelivery: stockxEstimatedDelivery || null,
         supplierCost,
         marginAmount,

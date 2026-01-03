@@ -17,7 +17,8 @@ export async function POST(req: NextRequest) {
       matchId, 
       manualCaseStatus, 
       manualRevenueAdjustment, 
-      manualNote 
+      manualNote,
+      manualSupplierCost
     } = body;
 
     if (!matchId) {
@@ -52,40 +53,46 @@ export async function POST(req: NextRequest) {
       `[MANUAL_OVERRIDE] Updating match ${existingMatch.shopifyOrderName} → ${existingMatch.stockxOrderNumber}`
     );
     console.log(`[MANUAL_OVERRIDE] Status: ${manualCaseStatus || "null"}`);
-    console.log(`[MANUAL_OVERRIDE] Adjustment: CHF ${manualRevenueAdjustment || 0}`);
+    console.log(`[MANUAL_OVERRIDE] Revenue Adjustment: CHF ${manualRevenueAdjustment || 0}`);
+    console.log(`[MANUAL_OVERRIDE] Manual Cost: CHF ${manualSupplierCost || "null"}`);
 
-    // Update only manual fields
+    // Calculate new margins if manual cost or revenue adjustment changes
+    const effectiveRevenue = existingMatch.shopifyTotalPrice + (manualRevenueAdjustment || existingMatch.manualRevenueAdjustment || 0);
+    const effectiveCost = manualSupplierCost !== undefined && manualSupplierCost !== null 
+      ? manualSupplierCost 
+      : (existingMatch.manualCostOverride || existingMatch.supplierCost);
+    
+    const newMarginAmount = effectiveRevenue - effectiveCost;
+    const newMarginPercent = effectiveRevenue > 0 
+      ? (newMarginAmount / effectiveRevenue) * 100 
+      : 0;
+
+    console.log(`[MANUAL_OVERRIDE] 💰 Recalculated: Revenue ${effectiveRevenue.toFixed(2)} - Cost ${effectiveCost.toFixed(2)} = Margin ${newMarginAmount.toFixed(2)} (${newMarginPercent.toFixed(1)}%)`);
+
+    // Update manual fields + recalculate margins
     const updated = await prisma.orderMatch.update({
       where: { id: matchId },
       data: {
         manualCaseStatus: manualCaseStatus || null,
-        manualRevenueAdjustment: manualRevenueAdjustment || null,
+        manualRevenueAdjustment: manualRevenueAdjustment !== undefined ? manualRevenueAdjustment : undefined,
         manualNote: manualNote || null,
+        manualCostOverride: manualSupplierCost !== undefined && manualSupplierCost !== null ? manualSupplierCost : undefined,
+        // Recalculate financial fields
+        supplierCost: effectiveCost,
+        marginAmount: newMarginAmount,
+        marginPercent: newMarginPercent,
         updatedAt: new Date(),
       },
     });
 
-    // Calculate effective values for response
-    const effectiveRevenue = updated.shopifyTotalPrice + (updated.manualRevenueAdjustment || 0);
-    const effectiveMargin = effectiveRevenue - updated.supplierCost;
-    const effectiveMarginPct = effectiveRevenue > 0 
-      ? (effectiveMargin / effectiveRevenue) * 100 
-      : 0;
-
     return NextResponse.json({
       success: true,
-      match: {
-        id: updated.id,
-        shopifyOrderName: updated.shopifyOrderName,
-        stockxOrderNumber: updated.stockxOrderNumber,
-        originalRevenue: updated.shopifyTotalPrice,
-        revenueAdjustment: updated.manualRevenueAdjustment,
+      updatedMatch: updated,
+      calculated: {
         effectiveRevenue,
-        supplierCost: updated.supplierCost,
-        effectiveMargin,
-        effectiveMarginPct,
-        manualCaseStatus: updated.manualCaseStatus,
-        manualNote: updated.manualNote,
+        effectiveCost,
+        newMarginAmount,
+        newMarginPercent,
       },
     });
 
