@@ -162,6 +162,44 @@ function scoreTimeProximity(hours: number): number {
   return 0;
 }
 
+/**
+ * 🔐 CAUSAL HARD FILTER: StockX order MUST be created AFTER Shopify order
+ * 
+ * Logic: In dropshipping model:
+ * 1. Customer places Shopify order (sale)
+ * 2. You buy from StockX to fulfill it (purchase)
+ * 
+ * Therefore: stockxCreated MUST be >= shopifyCreated (with small tolerance for clock skew)
+ * 
+ * @param shopifyDate - Shopify order creation date (ISO)
+ * @param stockxDate - StockX order creation date (ISO)
+ * @param toleranceMinutes - Allow small clock skew (default 5 minutes)
+ * @returns true if causal order is valid (StockX after Shopify)
+ */
+function isValidCausalOrder(
+  shopifyDate: string, 
+  stockxDate: string,
+  toleranceMinutes: number = 5
+): boolean {
+  const shopifyTime = new Date(shopifyDate).getTime();
+  const stockxTime = new Date(stockxDate).getTime();
+  const toleranceMs = toleranceMinutes * 60 * 1000;
+  
+  // StockX must be created AFTER Shopify (with tolerance for clock skew)
+  // If StockX is more than 5 minutes BEFORE Shopify → INVALID
+  const isValid = stockxTime >= (shopifyTime - toleranceMs);
+  
+  if (!isValid) {
+    const diffMinutes = (shopifyTime - stockxTime) / (1000 * 60);
+    console.log(
+      `[CAUSAL] ❌ REJECTED: StockX order created ${diffMinutes.toFixed(1)} minutes ` +
+      `BEFORE Shopify order (violates dropship causality)`
+    );
+  }
+  
+  return isValid;
+}
+
 export function matchShopifyToStockX(
   shopifyItem: ShopifyLineItem,
   stockxOrders: NormalizedStockXOrder[]
@@ -241,7 +279,26 @@ export function matchShopifyToStockX(
       }
     }
 
-    // Now candidate passed hard filters, calculate score for ranking
+    // HARD FILTER 3: Causal order (StockX must be AFTER Shopify)
+    // In dropshipping: Customer orders first (Shopify), then you buy to fulfill (StockX)
+    // Prevents matching wrong orders based on time proximity alone
+    const isValidCausal = isValidCausalOrder(
+      shopifyItem.createdAt,
+      stockxOrder.purchaseDate,
+      5 // 5 minutes tolerance for clock skew
+    );
+    
+    if (!isValidCausal) {
+      console.log(
+        `[MATCH] ❌ CAUSAL VIOLATION: StockX order ${stockxOrder.stockxOrderNumber} ` +
+        `created BEFORE Shopify order ${shopifyItem.orderName} - SKIPPING`
+      );
+      continue; // Skip candidates that violate causality
+    }
+    
+    reasons.push("✅ Valid causal order");
+
+    // Now candidate passed ALL hard filters, calculate score for ranking
 
     // Time proximity (main differentiator)
     const timeDiffHours = calculateTimeDiff(
@@ -315,7 +372,33 @@ export function matchShopifyToStockX(
   // Sort by score descending (time proximity will be main differentiator)
   candidates.sort((a, b) => b.score - a.score);
 
-  const bestMatch = candidates.length > 0 ? candidates[0] : null;
+  let bestMatch = candidates.length > 0 ? candidates[0] : null;
+  
+  // 🔐 AMBIGUITY DETECTION: If top1 and top2 scores are too close, downgrade to MEDIUM
+  // This prevents auto-matching when there's uncertainty between multiple candidates
+  if (bestMatch && candidates.length >= 2) {
+    const top1Score = candidates[0].score;
+    const top2Score = candidates[1].score;
+    const scoreDiff = top1Score - top2Score;
+    
+    // If scores are within 10 points of each other → ambiguous
+    if (scoreDiff < 10 && bestMatch.confidence === "high") {
+      console.log(
+        `[MATCH] ⚠️ AMBIGUOUS: Top 2 candidates have close scores ` +
+        `(${top1Score} vs ${top2Score}, diff: ${scoreDiff}) - downgrading to MEDIUM for manual review`
+      );
+      
+      // Downgrade confidence to force manual review
+      bestMatch = {
+        ...bestMatch,
+        confidence: "medium",
+        reasons: [
+          ...bestMatch.reasons,
+          `⚠️ Ambiguous (top2 score diff: ${scoreDiff})`
+        ]
+      };
+    }
+  }
 
   return {
     shopifyItem,
