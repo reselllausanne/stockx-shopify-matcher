@@ -215,6 +215,66 @@ export async function POST(req: Request) {
     for (const shopifyItem of shopifyItems) {
       console.log(`[SYNC] Processing: ${shopifyItem.orderName} - ${shopifyItem.title}`);
 
+      // 🔍 FIRST: Check if this Shopify item is already in DB
+      const existingInDb = await prisma.orderMatch.findUnique({
+        where: { shopifyLineItemId: shopifyItem.lineItemId },
+      });
+
+      if (existingInDb) {
+        // ✅ Already matched in DB - update price if changed
+        console.log(`[SYNC] 📋 Already matched in DB: ${shopifyItem.orderName} → ${existingInDb.stockxOrderNumber}`);
+        
+        const newShopifyPrice = parseFloat(shopifyItem.totalPrice) || 0;
+        const oldShopifyPrice = existingInDb.shopifyTotalPrice;
+        const priceChanged = Math.abs(newShopifyPrice - oldShopifyPrice) > 0.01;
+
+        if (priceChanged) {
+          // Recalculate margin with new price
+          const supplierCost = existingInDb.stockxOfferAmount;
+          const newMarginAmount = newShopifyPrice - supplierCost;
+          const newMarginPercent = newShopifyPrice > 0 ? (newMarginAmount / newShopifyPrice) * 100 : 0;
+
+          console.log(`[SYNC] 💰 Price changed: CHF ${oldShopifyPrice.toFixed(2)} → CHF ${newShopifyPrice.toFixed(2)} (updating DB)`);
+
+          await prisma.orderMatch.update({
+            where: { id: existingInDb.id },
+            data: {
+              shopifyTotalPrice: newShopifyPrice,
+              marginAmount: newMarginAmount,
+              marginPercent: newMarginPercent,
+              updatedAt: new Date(),
+            },
+          });
+
+          // Also update Shopify metafields with new margin
+          try {
+            await fetch(`${process.env.NEXT_PUBLIC_BASE_URL || "http://localhost:3000"}/api/shopify/set-metafields`, {
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({
+                shopifyOrderId: shopifyItem.shopifyOrderId,
+                stockxOrderNumber: existingInDb.stockxOrderNumber,
+                estimatedDelivery: existingInDb.stockxEstimatedDelivery,
+                stockxStatus: existingInDb.stockxStatus,
+                supplierCost: supplierCost.toFixed(2),
+                marginAmount: newMarginAmount.toFixed(2),
+                marginPercent: newMarginPercent.toFixed(2),
+              }),
+            });
+            console.log(`[SYNC] ✅ Updated Shopify metafields with new price`);
+          } catch (err) {
+            console.error(`[SYNC] ❌ Failed to update Shopify metafields:`, err);
+          }
+
+          updatedCount++;
+        } else {
+          console.log(`[SYNC] ✓ Price unchanged (CHF ${oldShopifyPrice.toFixed(2)}), skipping`);
+          skippedCount++;
+        }
+        
+        continue; // Skip matching algorithm for already-matched items
+      }
+
       // Run matching algorithm (only with AVAILABLE StockX orders)
       console.log(`[SYNC] 🔍 Matching: ${shopifyItem.orderName} - ${shopifyItem.title} (Size: ${shopifyItem.sizeEU || shopifyItem.variantTitle || 'N/A'})`);
       const matchResult = matchShopifyToStockX(shopifyItem, availableStockXOrders);
