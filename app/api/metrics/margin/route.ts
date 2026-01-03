@@ -21,37 +21,87 @@ export async function GET(request: NextRequest) {
     const startDate = new Date();
     startDate.setDate(endDate.getDate() - days);
 
-    // Fetch metrics from OrderMetric (uses Shopify order creation date, not match date!)
-    // This ensures dashboard shows sales by when customer placed order, not when we matched it
-    const metrics = await prisma.orderMetric.findMany({
-      where: {
-        createdAt: {
-          gte: startDate,
-          lte: endDate,
+    // IMPORTANT: We need to fetch from Shopify to get the ACTUAL order creation dates
+    // because OrderMatch.createdAt is when we matched it, not when customer ordered!
+    
+    // Fetch Shopify orders to get real creation dates
+    const shopifyAccessToken = process.env.SHOPIFY_ADMIN_ACCESS_TOKEN;
+    const shopifyShopDomain = process.env.SHOPIFY_SHOP_DOMAIN;
+    const shopifyApiVersion = process.env.SHOPIFY_API_VERSION || "2024-10";
+
+    if (!shopifyAccessToken || !shopifyShopDomain) {
+      return NextResponse.json(
+        { error: "Shopify credentials not configured" },
+        { status: 500 }
+      );
+    }
+
+    // Fetch Shopify orders with metafields
+    const shopifyQuery = `
+      query getOrders($first: Int!) {
+        orders(first: 250, reverse: true, query: "financial_status:paid OR financial_status:authorized") {
+          edges {
+            node {
+              id
+              name
+              createdAt
+              displayFinancialStatus
+              cancelled
+              totalPriceSet {
+                shopMoney {
+                  amount
+                }
+              }
+            }
+          }
+        }
+      }
+    `;
+
+    const shopifyRes = await fetch(
+      `https://${shopifyShopDomain}/admin/api/${shopifyApiVersion}/graphql.json`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Shopify-Access-Token": shopifyAccessToken,
         },
+        body: JSON.stringify({
+          query: shopifyQuery,
+          variables: { first: 250 },
+        }),
+      }
+    );
+
+    const shopifyData = await shopifyRes.json();
+    const shopifyOrders = shopifyData?.data?.orders?.edges || [];
+
+    // Get all matched orders from DB
+    const dbMatches = await prisma.orderMatch.findMany({
+      where: {
+        marginAmount: { gt: 0 },
       },
-      orderBy: {
-        createdAt: "asc",
+      select: {
+        shopifyOrderId: true,
+        shopifyTotalPrice: true,
+        marginAmount: true,
+        marginPercent: true,
       },
     });
 
-    if (metrics.length === 0) {
-      return NextResponse.json({
-        data: [],
-        totals: {
-          totalSales: 0,
-          totalMargin: 0,
-          overallMarginPct: 0,
-        },
-        period: {
-          startDate: startDate.toISOString().split("T")[0],
-          endDate: endDate.toISOString().split("T")[0],
-          days,
-        },
-      });
+    // Create a map for quick lookup
+    const dbMatchMap = new Map();
+    for (const match of dbMatches) {
+      if (!dbMatchMap.has(match.shopifyOrderId)) {
+        dbMatchMap.set(match.shopifyOrderId, {
+          revenue: match.shopifyTotalPrice,
+          margin: match.marginAmount,
+          marginPct: match.marginPercent,
+        });
+      }
     }
 
-    // Group by day and calculate metrics
+    // Group by day
     const dailyMetrics = new Map<string, {
       sales: number;
       marginChf: number;
@@ -62,9 +112,23 @@ export async function GET(request: NextRequest) {
     let totalSales = 0;
     let totalMargin = 0;
 
-    // Process each metric (grouped by Shopify order creation date)
-    for (const metric of metrics) {
-      const dateKey = metric.createdAt.toISOString().split("T")[0]; // YYYY-MM-DD
+    // Process Shopify orders
+    for (const edge of shopifyOrders) {
+      const order = edge.node;
+      const orderId = order.id;
+      const orderDate = new Date(order.createdAt);
+      
+      // Skip if outside date range
+      if (orderDate < startDate || orderDate > endDate) continue;
+      
+      // Skip cancelled orders
+      if (order.cancelled) continue;
+      
+      // Skip if not matched in DB
+      const matchData = dbMatchMap.get(orderId);
+      if (!matchData) continue;
+
+      const dateKey = orderDate.toISOString().split("T")[0];
 
       if (!dailyMetrics.has(dateKey)) {
         dailyMetrics.set(dateKey, {
@@ -76,19 +140,18 @@ export async function GET(request: NextRequest) {
       }
 
       const day = dailyMetrics.get(dateKey)!;
-      day.sales += metric.grossSales;
-      day.marginChf += metric.marginChf;
-      day.margins.push(metric.marginPct);
+      day.sales += matchData.revenue;
+      day.marginChf += matchData.margin;
+      day.margins.push(matchData.marginPct);
       day.count += 1;
 
-      totalSales += metric.grossSales;
-      totalMargin += metric.marginChf;
+      totalSales += matchData.revenue;
+      totalMargin += matchData.margin;
     }
 
-    // Convert to array and calculate medians
+    // Convert to array
     const data = Array.from(dailyMetrics.entries())
       .map(([date, day]) => {
-        // Calculate median margin percentage
         const sortedMargins = day.margins.sort((a, b) => a - b);
         const mid = Math.floor(sortedMargins.length / 2);
         const medianMarginPct = sortedMargins.length % 2 === 0
@@ -97,16 +160,15 @@ export async function GET(request: NextRequest) {
 
         return {
           date,
-          sales: Math.round(day.sales * 100) / 100, // Round to 2 decimals
+          sales: Math.round(day.sales * 100) / 100,
           marginChf: Math.round(day.marginChf * 100) / 100,
-          marginPct: Math.round((day.marginChf / day.sales) * 100 * 100) / 100, // Percentage with 2 decimals
+          marginPct: Math.round((day.marginChf / day.sales) * 100 * 100) / 100,
           medianMarginPct: Math.round(medianMarginPct * 100) / 100,
           orderCount: day.count,
         };
       })
-      .sort((a, b) => a.date.localeCompare(b.date)); // Sort by date ascending
+      .sort((a, b) => a.date.localeCompare(b.date));
 
-    // Calculate overall margin percentage
     const overallMarginPct = totalSales > 0
       ? Math.round((totalMargin / totalSales) * 100 * 100) / 100
       : 0;

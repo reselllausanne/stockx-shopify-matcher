@@ -186,8 +186,25 @@ export async function POST(req: Request) {
 
     console.log(`[SYNC] Fetched ${stockxOrders.length} StockX orders`);
 
-    // 3. Match ALL Shopify items with StockX orders
-    console.log(`[SYNC] Matching ${shopifyItems.length} Shopify items with ${stockxOrders.length} StockX orders...`);
+    // 🔒 CRITICAL: Get already-matched StockX orders to prevent duplicates
+    const alreadyMatchedStockX = await prisma.orderMatch.findMany({
+      select: {
+        stockxOrderNumber: true,
+      },
+    });
+    const usedStockXOrderNumbers = new Set(
+      alreadyMatchedStockX.map((m) => m.stockxOrderNumber)
+    );
+    console.log(`[SYNC] 🔒 Found ${usedStockXOrderNumbers.size} already-matched StockX orders (will exclude from matching)`);
+
+    // Filter out already-used StockX orders
+    const availableStockXOrders = stockxOrders.filter(
+      (order) => !usedStockXOrderNumbers.has(order.stockxOrderNumber)
+    );
+    console.log(`[SYNC] ✅ ${availableStockXOrders.length} available StockX orders (${stockxOrders.length - availableStockXOrders.length} already matched)`);
+
+    // 3. Match ALL Shopify items with AVAILABLE StockX orders only
+    console.log(`[SYNC] Matching ${shopifyItems.length} Shopify items with ${availableStockXOrders.length} available StockX orders...`);
     
     const results = [];
     let newMatchCount = 0;
@@ -198,9 +215,9 @@ export async function POST(req: Request) {
     for (const shopifyItem of shopifyItems) {
       console.log(`[SYNC] Processing: ${shopifyItem.orderName} - ${shopifyItem.title}`);
 
-      // Run matching algorithm
+      // Run matching algorithm (only with AVAILABLE StockX orders)
       console.log(`[SYNC] 🔍 Matching: ${shopifyItem.orderName} - ${shopifyItem.title} (Size: ${shopifyItem.sizeEU || shopifyItem.variantTitle || 'N/A'})`);
-      const matchResult = matchShopifyToStockX(shopifyItem, stockxOrders);
+      const matchResult = matchShopifyToStockX(shopifyItem, availableStockXOrders);
 
       if (!matchResult || !matchResult.bestMatch) {
         console.log(`[SYNC] ⏭️ No match found for ${shopifyItem.orderName} - ${shopifyItem.title} (skipping, not saving to DB)`);
