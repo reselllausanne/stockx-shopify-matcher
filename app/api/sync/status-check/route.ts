@@ -100,15 +100,105 @@ export async function POST(req: Request) {
         }
 
         const stockxData = await stockxRes.json();
-        const node = stockxData?.data?.viewer?.buying?.edges?.[0]?.node;
+        let node = stockxData?.data?.viewer?.buying?.edges?.[0]?.node;
+
+        // HISTORICAL FALLBACK: If not found in PENDING, try HISTORICAL state
+        if (!node) {
+          console.log(`[STATUS] Order ${match.stockxOrderNumber} not found in PENDING, checking HISTORICAL...`);
+          
+          const historicalRes = await fetch(`${process.env.NEXT_PUBLIC_BASE_URL || "http://localhost:3000"}/api/stockx`, {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({
+              token: stockxToken,
+              operationName: "BuyingHistoricalCheck",
+              query: `
+                query BuyingHistoricalCheck(
+                  $first: Int
+                  $query: String
+                  $currencyCode: CurrencyCode
+                  $state: BuyingGeneralState
+                ) {
+                  viewer {
+                    buying(
+                      first: $first
+                      query: $query
+                      currencyCode: $currencyCode
+                      state: $state
+                    ) {
+                      edges {
+                        node {
+                          orderNumber
+                          state {
+                            statusKey
+                            statusTitle
+                          }
+                          estimatedDeliveryDateRange {
+                            estimatedDeliveryDate
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              `,
+              variables: {
+                first: 1,
+                query: match.stockxOrderNumber,
+                currencyCode: match.shopifyCurrencyCode || "CHF",
+                state: "HISTORICAL",
+              },
+            }),
+          });
+
+          if (historicalRes.ok) {
+            const historicalData = await historicalRes.json();
+            node = historicalData?.data?.viewer?.buying?.edges?.[0]?.node;
+            
+            if (node) {
+              console.log(`[STATUS] ✅ Found ${match.stockxOrderNumber} in HISTORICAL state`);
+            }
+          }
+
+          // Rate limit after additional check
+          await new Promise((resolve) => setTimeout(resolve, 500));
+        }
 
         if (!node) {
-          console.log(`[STATUS] StockX order ${match.stockxOrderNumber} not found (maybe cancelled/refunded)`);
+          // Order not found in PENDING or HISTORICAL
+          const currentMissingCount = match.stockxMissingCount + 1;
+          console.log(`[STATUS] ⚠️ Order ${match.stockxOrderNumber} not found (missing count: ${currentMissingCount}/3)`);
+          
+          // Update missing count
+          await prisma.orderMatch.update({
+            where: { id: match.id },
+            data: {
+              stockxMissingCount: currentMissingCount,
+              lastStatusCheck: new Date(),
+            },
+          });
+          
+          // Only alert after 3 consecutive misses
+          if (currentMissingCount >= 3) {
+            console.error(`[STATUS] 🚨 Order ${match.stockxOrderNumber} missing for 3+ checks - may be cancelled/refunded`);
+          }
+          
           continue;
         }
 
+        // Order found - reset missing count and update lastSeenAt
         const currentStatus = node.state?.statusKey || "";
         const currentEstimatedDelivery = node.estimatedDeliveryDateRange?.estimatedDeliveryDate || null;
+        
+        // Update tracking fields
+        await prisma.orderMatch.update({
+          where: { id: match.id },
+          data: {
+            stockxLastSeenAt: new Date(),
+            stockxMissingCount: 0, // Reset counter
+            lastStatusCheck: new Date(),
+          },
+        });
 
         // 3. Check if status changed
         if (currentStatus !== match.stockxStatus || currentEstimatedDelivery !== match.stockxEstimatedDelivery) {
