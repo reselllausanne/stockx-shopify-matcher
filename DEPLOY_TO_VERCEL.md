@@ -51,24 +51,30 @@ In the Vercel project settings, add these **EXACT** variables:
 
 ### **Database (Supabase)**
 ```bash
-DATABASE_URL=postgresql://postgres.nhxgqbqzevbblhlgfffb:Noelia.701.Noelia@aws-0-eu-central-1.pooler.supabase.com:6543/postgres
+DATABASE_URL=your_supabase_pooled_connection_string
 
-DIRECT_URL=postgresql://postgres.nhxgqbqzevbblhlgfffb:Noelia.701.Noelia@aws-0-eu-central-1.pooler.supabase.com:5432/postgres
+DIRECT_URL=your_supabase_direct_connection_string
 ```
+
+**Get these from your `.env.local` file or Supabase dashboard**
 
 ### **Shopify**
 ```bash
-SHOPIFY_ADMIN_ACCESS_TOKEN=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
+SHOPIFY_ADMIN_ACCESS_TOKEN=your_shopify_token_here
 
-SHOPIFY_SHOP_DOMAIN=tdfuture.myshopify.com
+SHOPIFY_SHOP_DOMAIN=yourshop.myshopify.com
 ```
+
+**Get your Shopify token from `.env.local` file**
 
 ### **Supabase (optional)**
 ```bash
-NEXT_PUBLIC_SUPABASE_URL=https://nhxgqbqzevbblhlgfffb.supabase.co
+NEXT_PUBLIC_SUPABASE_URL=your_supabase_url
 
-NEXT_PUBLIC_SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5oeGdxYnF6ZXZiYmxobGdmZmZiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3MzY0MzYwODAsImV4cCI6MjA1MjAxMjA4MH0.2K-zJT36nxELYaKj4SVlaTbxQa8zy9Cm92GRXBmhMAA
+NEXT_PUBLIC_SUPABASE_ANON_KEY=your_supabase_anon_key
 ```
+
+**Get these from your Supabase project settings**
 
 **How to add them:**
 - In Vercel project → **Settings** → **Environment Variables**
@@ -150,13 +156,7 @@ AppSheet connects directly to **Supabase**, not Vercel.
 
 So it works the same whether you're on localhost OR Vercel!
 
-**Connection info stays the same:**
-- Host: `db.nhxgqbqzevbblhlgfffb.supabase.co`
-- Port: `5432`
-- Database: `postgres`
-- User: `postgres.nhxgqbqzevbblhlgfffb`
-- Password: `Noelia.701.Noelia`
-- Schema: `public`
+**Connection info:** Get from your Supabase dashboard settings
 
 ---
 
