@@ -213,7 +213,7 @@ export default function FinancialOverviewPage() {
           <div className="bg-white p-6 rounded-lg shadow">
             <div className="text-sm font-medium text-gray-500">Supplier Costs</div>
             <div className="text-2xl font-bold text-orange-600">-CHF {totalCosts.toFixed(2)}</div>
-            <div className="text-xs text-gray-500 mt-1">StockX purchases</div>
+            <div className="text-xs text-gray-500 mt-1">Supplier purchases</div>
           </div>
           
           <div className="bg-white p-6 rounded-lg shadow">

@@ -1,17 +1,17 @@
-# StockX Pro GraphQL Playground + Shopify Matching
+# Supplier Order Management + Shopify Matching
 
-A complete solution for testing StockX Pro Buying queries and matching them with Shopify orders.
+A complete solution for managing supplier orders and matching them with Shopify orders.
 
 ## Features
 
-### StockX Integration
+### Supplier Integration
 - 🔐 **Secure Token Management**: Store your Bearer token locally (optional)
 - 📊 **Paginated Results**: Fetch first page, next page, or all pages automatically
 - 📝 **Editable Queries**: Modify GraphQL queries and variables on the fly
 - 📈 **Results Table**: View all your purchasing orders with full details
 - 💰 **Total TTC Pricing**: Fetch complete pricing including fees and shipping
 - 🐛 **Debug Panel**: Track HTTP status, errors, cursors, and total results
-- 📦 **CSV Export**: Export your results to `stockx_buying_orders.csv`
+- 📦 **CSV Export**: Export your results to `supplier_orders.csv`
 - ⏱️ **Rate Limiting**: Automatic delays to avoid rate limits
 
 ### Shopify Integration & Matching
@@ -77,9 +77,9 @@ Open [http://localhost:3000](http://localhost:3000) in your browser.
 
 ## Usage
 
-### StockX Orders
+### Supplier Orders
 
-1. **Enter Your Token**: Paste your StockX Pro Bearer token in the password field
+1. **Enter Your Token**: Paste your Supplier Bearer token in the password field
 2. **Save Token** (Optional): Toggle "Save token locally" to persist it in localStorage
 3. **Customize Query** (Optional): Edit the GraphQL query or variables as needed
 4. **Fetch Data**:
@@ -91,11 +91,11 @@ Open [http://localhost:3000](http://localhost:3000) in your browser.
 
 ### Shopify Matching
 
-1. **Load StockX Orders First**: Make sure you have StockX orders loaded
+1. **Load Supplier Orders First**: Make sure you have Supplier orders loaded
 2. **Click "Load Shopify Orders (30d)"**: Fetches recent Shopify paid orders
 3. **Review Matches**: See automatic matching suggestions with confidence scores
 4. **Verify Matches**: Check SKU, size, date, and product name alignment
-5. **Manual Override**: Edit the StockX order number field if needed
+5. **Manual Override**: Edit the Supplier order number field if needed
 6. **Color Coding**:
    - 🟢 Green border: High confidence match (name+size+time<48h)
    - 🔵 Blue border: Medium confidence match (name+size+time<4d)
@@ -116,7 +116,7 @@ See [MATCHING_LOGIC.md](MATCHING_LOGIC.md) for detailed explanation of:
 
 The app includes a proxy API route at `/api/stockx` that:
 - Validates the Bearer token
-- Forwards requests to `https://pro.stockx.com/api/graphql`
+- Forwards requests to the supplier API
 - Sets proper headers (authorization, origin, referer)
 - Returns the upstream response with proper status codes
 - Never logs tokens for security

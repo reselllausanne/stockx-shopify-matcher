@@ -2,8 +2,8 @@
 
 import React, { useState, useEffect } from "react";
 import {
-  matchShopifyToStockX,
-  type NormalizedStockXOrder,
+  matchShopifyToSupplier,
+  type NormalizedSupplierOrder,
   type ShopifyLineItem,
   type MatchResult,
 } from "./utils/matching";
@@ -158,15 +158,15 @@ export default function Home() {
   const [matchResults, setMatchResults] = useState<MatchResult[]>([]);
   const [loadingShopify, setLoadingShopify] = useState(false);
   const [confirmedMatches, setConfirmedMatches] = useState<Record<string, string>>({});
-  const [manualOverrides, setManualOverrides] = useState<Record<string, { stockxOrderNumber: string; method: string }>>({});
+  const [manualOverrides, setManualOverrides] = useState<Record<string, { supplierOrderNumber: string; method: string }>>({});
   
   // Manual matching state
   const [manualShopifyOrder, setManualShopifyOrder] = useState("");
-  const [manualStockXOrder, setManualStockXOrder] = useState("");
+  const [manualSupplierOrder, setManualSupplierOrder] = useState("");
   const [manualMatchLoading, setManualMatchLoading] = useState(false);
   
   // Metafields state (track which matches have been synced to Shopify)
-  const [metafieldsSet, setMetafieldsSet] = useState<Record<string, { timestamp: string; stockxOrderNumber: string }>>({});
+  const [metafieldsSet, setMetafieldsSet] = useState<Record<string, { timestamp: string; supplierOrderNumber: string }>>({});
   const [metafieldsLoading, setMetafieldsLoading] = useState<Record<string, boolean>>({});
   const [manualCostOverrides, setManualCostOverrides] = useState<Record<string, string>>({});
 
@@ -180,7 +180,7 @@ export default function Home() {
 
   // Load token from localStorage on mount
   useEffect(() => {
-    const savedToken = localStorage.getItem("stockx_token");
+    const savedToken = localStorage.getItem("supplier_token");
     if (savedToken) {
       setToken(savedToken);
       setSaveToken(true);
@@ -190,9 +190,9 @@ export default function Home() {
   // Save/remove token from localStorage
   useEffect(() => {
     if (saveToken && token) {
-      localStorage.setItem("stockx_token", token);
+      localStorage.setItem("supplier_token", token);
     } else {
-      localStorage.removeItem("stockx_token");
+      localStorage.removeItem("supplier_token");
     }
   }, [saveToken, token]);
 
@@ -438,7 +438,7 @@ export default function Home() {
     const link = document.createElement("a");
     const url = URL.createObjectURL(blob);
     link.setAttribute("href", url);
-    link.setAttribute("download", "stockx_buying_orders.csv");
+    link.setAttribute("download", "supplier_orders.csv");
     link.style.visibility = "hidden";
     document.body.appendChild(link);
     link.click();
@@ -527,9 +527,9 @@ export default function Home() {
       const items = data.lineItems || [];
       setShopifyItems(items);
 
-      // Normalize StockX orders for matching
-      const normalizedStockX: NormalizedStockXOrder[] = orders.map((o) => ({
-        stockxOrderNumber: o.orderNumber || "",
+      // Normalize Supplier orders for matching
+      const normalizedSupplier: NormalizedSupplierOrder[] = orders.map((o) => ({
+        supplierOrderNumber: o.orderNumber || "",
         purchaseDate: o.purchaseDate || "",
         offerAmount: o.amount,
         totalTTC:
@@ -544,43 +544,43 @@ export default function Home() {
         currencyCode: o.currencyCode,
       }));
 
-      // 🔒 CRITICAL: Filter out already-matched StockX orders
-      let availableStockX = normalizedStockX;
+      // 🔒 CRITICAL: Filter out already-matched Supplier orders
+      let availableSupplier = normalizedSupplier;
       try {
         const dbRes = await fetch("/api/db/matches");
         if (dbRes.ok) {
           const dbData = await dbRes.json();
-          const usedStockXNumbers = new Set(
-            dbData.matches.map((m: any) => m.stockxOrderNumber)
+          const usedSupplierNumbers = new Set(
+            dbData.matches.map((m: any) => m.supplierOrderNumber)
           );
           
-          const beforeCount = normalizedStockX.length;
-          availableStockX = normalizedStockX.filter(
-            (order) => !usedStockXNumbers.has(order.stockxOrderNumber)
+          const beforeCount = normalizedSupplier.length;
+          availableSupplier = normalizedSupplier.filter(
+            (order) => !usedSupplierNumbers.has(order.supplierOrderNumber)
           );
           
-          const filteredOut = normalizedStockX.filter(
-            (order) => usedStockXNumbers.has(order.stockxOrderNumber)
+          const filteredOut = normalizedSupplier.filter(
+            (order) => usedSupplierNumbers.has(order.supplierOrderNumber)
           );
           
           console.log(`🔒 DB has ${dbData.matches.length} total matches`);
-          console.log(`🔒 Filtered out ${beforeCount - availableStockX.length} already-matched StockX orders:`, 
-            filteredOut.map(o => o.stockxOrderNumber).join(", "));
-          console.log(`✅ ${availableStockX.length} StockX orders available for matching`);
+          console.log(`🔒 Filtered out ${beforeCount - availableSupplier.length} already-matched Supplier orders:`, 
+            filteredOut.map(o => o.supplierOrderNumber).join(", "));
+          console.log(`✅ ${availableSupplier.length} Supplier orders available for matching`);
           
-          if (availableStockX.length === 0 && normalizedStockX.length > 0) {
-            console.warn(`⚠️ WARNING: All ${normalizedStockX.length} StockX orders are already matched!`);
+          if (availableSupplier.length === 0 && normalizedSupplier.length > 0) {
+            console.warn(`⚠️ WARNING: All ${normalizedSupplier.length} Supplier orders are already matched!`);
           }
         } else {
-          console.error("❌ Failed to fetch DB matches, showing all StockX orders");
+          console.error("❌ Failed to fetch DB matches, showing all Supplier orders");
         }
       } catch (err) {
-        console.error("❌ Error fetching DB matches, showing all StockX orders:", err);
+        console.error("❌ Error fetching DB matches, showing all Supplier orders:", err);
       }
 
-      // Run matching (only with AVAILABLE StockX orders)
+      // Run matching (only with AVAILABLE Supplier orders)
       const results = items.map((item: ShopifyLineItem) =>
-        matchShopifyToStockX(item, availableStockX)
+        matchShopifyToSupplier(item, availableSupplier)
       );
 
       setMatchResults(results);
@@ -594,8 +594,8 @@ export default function Home() {
   };
 
   const handleManualMatch = async () => {
-    if (!manualShopifyOrder.trim() || !manualStockXOrder.trim()) {
-      alert("Please enter both Shopify and StockX order numbers");
+    if (!manualShopifyOrder.trim() || !manualSupplierOrder.trim()) {
+      alert("Please enter both Shopify and Supplier order numbers");
       return;
     }
 
@@ -604,7 +604,7 @@ export default function Home() {
     try {
       // Clean input
       const cleanShopifyNum = manualShopifyOrder.replace("#", "").trim();
-      const cleanStockXNum = manualStockXOrder.trim();
+      const cleanSupplierNum = manualSupplierOrder.trim();
 
       // 1. Try to find Shopify item in already loaded items
       let shopifyItem = shopifyItems.find(
@@ -646,7 +646,7 @@ export default function Home() {
         if (fetchedLineItems.length > 1) {
           const proceed = confirm(
             `ℹ️ Order #${cleanShopifyNum} has ${fetchedLineItems.length} line items.\n\n` +
-            `This will match the StockX order to the FIRST line item:\n` +
+            `This will match the Supplier order to the FIRST line item:\n` +
             `"${fetchedLineItems[0].title}"\n\n` +
             `Continue?`
           );
@@ -657,8 +657,8 @@ export default function Home() {
         console.log(`[MANUAL MATCH] Fetched Shopify order #${cleanShopifyNum}:`, shopifyItem);
 
         // Create match results for the fetched items (to show auto-suggestions if user wants)
-        const normalizedStockX: NormalizedStockXOrder[] = orders.map((o) => ({
-          stockxOrderNumber: o.orderNumber || "",
+        const normalizedSupplier: NormalizedSupplierOrder[] = orders.map((o) => ({
+          supplierOrderNumber: o.orderNumber || "",
           purchaseDate: o.purchaseDate || "",
           offerAmount: o.amount,
           totalTTC:
@@ -674,7 +674,7 @@ export default function Home() {
         }));
 
         const newMatchResults = fetchedLineItems.map((item: ShopifyLineItem) =>
-          matchShopifyToStockX(item, normalizedStockX)
+          matchShopifyToSupplier(item, normalizedSupplier)
         );
 
         setMatchResults((prev) => [...prev, ...newMatchResults]);
@@ -686,12 +686,12 @@ export default function Home() {
         return;
       }
 
-      // 4. Check if StockX order exists (optional warning)
-      const stockxOrder = orders.find((o) => o.orderNumber === cleanStockXNum);
+      // 4. Check if Supplier order exists (optional warning)
+      const supplierOrder = orders.find((o) => o.orderNumber === cleanSupplierNum);
 
-      if (!stockxOrder) {
+      if (!supplierOrder) {
         const proceed = confirm(
-          `⚠️ StockX order ${cleanStockXNum} not found in currently loaded StockX orders.\n\n` +
+          `⚠️ Supplier order ${cleanSupplierNum} not found in currently loaded Supplier orders.\n\n` +
           `This might be because:\n` +
           `- The order hasn't been fetched yet\n` +
           `- The order number is incorrect\n\n` +
@@ -704,26 +704,26 @@ export default function Home() {
       setManualOverrides({
         ...manualOverrides,
         [shopifyItem.lineItemId]: {
-          stockxOrderNumber: cleanStockXNum,
+          supplierOrderNumber: cleanSupplierNum,
           method: "MANUAL_OVERRIDE",
         },
       });
 
       setConfirmedMatches({
         ...confirmedMatches,
-        [shopifyItem.lineItemId]: cleanStockXNum,
+        [shopifyItem.lineItemId]: cleanSupplierNum,
       });
 
-      console.log(`✅ Manual match created: ${shopifyItem.orderName} → ${cleanStockXNum}`);
+      console.log(`✅ Manual match created: ${shopifyItem.orderName} → ${cleanSupplierNum}`);
       alert(
         `✅ Manual match saved!\n\n` +
-        `${shopifyItem.orderName} → ${cleanStockXNum}\n\n` +
+        `${shopifyItem.orderName} → ${cleanSupplierNum}\n\n` +
         `Product: ${shopifyItem.title}`
       );
 
       // Clear inputs
       setManualShopifyOrder("");
-      setManualStockXOrder("");
+      setManualSupplierOrder("");
     } catch (error: any) {
       console.error("[MANUAL MATCH] Error:", error);
       alert(`❌ Error creating manual match:\n\n${error.message}`);
@@ -732,17 +732,17 @@ export default function Home() {
     }
   };
 
-  const handleSetMetafields = async (shopifyItem: ShopifyLineItem, stockxOrderNumber: string) => {
+  const handleSetMetafields = async (shopifyItem: ShopifyLineItem, supplierOrderNumber: string) => {
     const lineItemId = shopifyItem.lineItemId;
     
     setMetafieldsLoading((prev) => ({ ...prev, [lineItemId]: true }));
 
     try {
-      // Find the StockX order for additional details
-      const stockxOrder = orders.find((o) => o.orderNumber === stockxOrderNumber);
+      // Find the Supplier order for additional details
+      const supplierOrder = orders.find((o) => o.orderNumber === supplierOrderNumber);
 
-      if (!stockxOrder) {
-        alert(`⚠️ StockX order ${stockxOrderNumber} not found in loaded orders.\n\nPlease fetch the StockX order first.`);
+      if (!supplierOrder) {
+        alert(`⚠️ Supplier order ${supplierOrderNumber} not found in loaded orders.\n\nPlease fetch the Supplier order first.`);
         return;
       }
 
@@ -750,7 +750,7 @@ export default function Home() {
       // 1. Shopify revenue (sale price for this line item)
       const shopifyRevenue = parseFloat(shopifyItem.totalPrice) || 0;
       
-      // 2. Supplier cost (StockX total TTC or manual override)
+      // 2. Supplier cost (Supplier total TTC or manual override)
       let supplierCost = 0;
       
       // Check for manual override first
@@ -758,17 +758,17 @@ export default function Home() {
         supplierCost = parseFloat(manualCostOverrides[lineItemId]) || 0;
       } else {
         // Try to get TTC from pricing data
-        const pricingData = pricingByOrder[stockxOrderNumber];
+        const pricingData = pricingByOrder[supplierOrderNumber];
         if (pricingData?.total != null) {
           supplierCost = pricingData.total;
         } else {
           // Fallback to offer amount (not ideal, but better than nothing)
-          supplierCost = stockxOrder.amount || 0;
+          supplierCost = supplierOrder.amount || 0;
           
           // Prompt user to confirm or enter manual cost
           const manualCostInput = prompt(
-            `⚠️ No TTC pricing found for StockX order ${stockxOrderNumber}\n\n` +
-            `Offer amount: ${supplierCost.toFixed(2)} ${stockxOrder.currencyCode || "CHF"}\n\n` +
+            `⚠️ No TTC pricing found for Supplier order ${supplierOrderNumber}\n\n` +
+            `Offer amount: ${supplierCost.toFixed(2)} ${supplierOrder.currencyCode || "CHF"}\n\n` +
             `Please enter the TOTAL cost (including fees) or press OK to use offer amount:`,
             supplierCost.toFixed(2)
           );
@@ -800,10 +800,10 @@ export default function Home() {
         `- Shopify Revenue: ${shopifyRevenue.toFixed(2)} ${shopifyItem.currencyCode}\n` +
         `- Supplier Cost: ${supplierCost.toFixed(2)} ${shopifyItem.currencyCode}\n` +
         `- Margin: ${marginAmount.toFixed(2)} ${shopifyItem.currencyCode} (${marginPercent.toFixed(2)}%)\n\n` +
-        `📦 StockX Data:\n` +
-        `- Order Number: ${stockxOrderNumber}\n` +
-        `- Status: ${stockxOrder.statusKey || "UNKNOWN"}\n` +
-        `- Estimated Delivery: ${stockxOrder.estimatedDeliveryDate || "N/A"}\n\n` +
+        `📦 Supplier Data:\n` +
+        `- Order Number: ${supplierOrderNumber}\n` +
+        `- Status: ${supplierOrder.statusKey || "UNKNOWN"}\n` +
+        `- Estimated Delivery: ${supplierOrder.estimatedDeliveryDate || "N/A"}\n\n` +
         `This will write 6 metafields to Shopify:\n` +
         `supplier.order_number\n` +
         `supplier.status\n` +
@@ -823,9 +823,9 @@ export default function Home() {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           shopifyOrderId: shopifyItem.shopifyOrderId,
-          stockxOrderNumber: stockxOrderNumber,
-          estimatedDelivery: stockxOrder.estimatedDeliveryDate || null,
-          stockxStatus: stockxOrder.statusKey || "UNKNOWN",
+          supplierOrderNumber: supplierOrderNumber,
+          estimatedDelivery: supplierOrder.estimatedDeliveryDate || null,
+          supplierStatus: supplierOrder.statusKey || "UNKNOWN",
           supplierCost: supplierCost.toFixed(2),
           marginAmount: marginAmount.toFixed(2),
           marginPercent: marginPercent.toFixed(2),
@@ -848,7 +848,7 @@ export default function Home() {
         ...prev,
         [lineItemId]: {
           timestamp: new Date().toISOString(),
-          stockxOrderNumber,
+          supplierOrderNumber,
         },
       }));
 
@@ -872,17 +872,17 @@ export default function Home() {
             shopifySizeEU: shopifyItem.sizeEU,
             shopifyTotalPrice: shopifyRevenue,
             shopifyCurrencyCode: shopifyItem.currencyCode || "CHF",
-            stockxOrderNumber: stockxOrderNumber,
-            stockxProductName: stockxOrder.displayName,
-            stockxSizeEU: stockxOrder.size,
-            stockxSkuKey: stockxOrder.skuKey,
+            supplierOrderNumber: supplierOrderNumber,
+            supplierProductName: supplierOrder.displayName,
+            supplierSizeEU: supplierOrder.size,
+            supplierSkuKey: supplierOrder.skuKey,
             matchConfidence: bestMatch?.confidence || "manual",
             matchScore: bestMatch?.score || 0,
             matchType: manualOverrides[lineItemId] ? "manual" : "auto",
             matchReasons: bestMatch?.reasons || ["Manual match"],
             timeDiffHours: bestMatch?.timeDiffHours || 0,
-            stockxStatus: stockxOrder.statusKey || "",
-            stockxEstimatedDelivery: stockxOrder.estimatedDeliveryDate || null,
+            supplierStatus: supplierOrder.statusKey || "",
+            supplierEstimatedDelivery: supplierOrder.estimatedDeliveryDate || null,
             supplierCost: supplierCost,
             marginAmount: marginAmount,
             marginPercent: marginPercent,
@@ -905,7 +905,7 @@ export default function Home() {
 
       alert(
         `✅ Metafields set successfully on Shopify!\n\n` +
-        `${shopifyItem.orderName} → ${stockxOrderNumber}\n\n` +
+        `${shopifyItem.orderName} → ${supplierOrderNumber}\n\n` +
         `${data.metafields?.length || 0} metafields written.\n\n` +
         `💾 Match saved to database.`
       );
@@ -951,7 +951,7 @@ export default function Home() {
   // Trigger sync worker (auto-match new orders)
   const triggerSync = async () => {
     if (!token) {
-      alert("⚠️ Please enter your StockX token first");
+      alert("⚠️ Please enter your Supplier token first");
       return;
     }
 
@@ -963,7 +963,7 @@ export default function Home() {
       const res = await fetch("/api/sync/new-orders", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ stockxToken: token }),
+        body: JSON.stringify({ supplierToken: token }),
       });
 
       if (!res.ok) {
@@ -1012,7 +1012,7 @@ export default function Home() {
   // Trigger status check worker
   const triggerStatusCheck = async () => {
     if (!token) {
-      alert("⚠️ Please enter your StockX token first");
+      alert("⚠️ Please enter your Supplier token first");
       return;
     }
 
@@ -1024,7 +1024,7 @@ export default function Home() {
       const res = await fetch("/api/sync/status-check", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ stockxToken: token }),
+        body: JSON.stringify({ supplierToken: token }),
       });
 
       if (!res.ok) {
@@ -1121,7 +1121,7 @@ export default function Home() {
       `Margin: CHF ${margin.toFixed(2)} (${marginPercent.toFixed(1)}%)\n\n` +
       `⚠️ This will:\n` +
       `✅ Add to dashboard metrics\n` +
-      `✅ Mark as "MANUAL_COST" (no StockX link)\n` +
+      `✅ Mark as "MANUAL_COST" (no Supplier link)\n` +
       `❌ NOT appear in fulfillment queue\n` +
       `${isLiquidation ? "✅ Track liquidation sale\n" : ""}` +
       `${isEssentialHoodie ? "✅ Track Essential Hoodie with 42 CHF cost\n" : ""}`;
@@ -1141,17 +1141,17 @@ export default function Home() {
           shopifySizeEU: shopifyItem.sizeEU,
           shopifyTotalPrice: revenue,
           shopifyCurrencyCode: shopifyItem.currencyCode,
-          stockxOrderNumber: null, // Will be auto-generated as MANUAL-xxx
-          stockxProductName: shopifyItem.title,
-          stockxSizeEU: shopifyItem.sizeEU,
-          stockxSkuKey: shopifyItem.sku,
+          supplierOrderNumber: null, // Will be auto-generated as MANUAL-xxx
+          supplierProductName: shopifyItem.title,
+          supplierSizeEU: shopifyItem.sizeEU,
+          supplierSkuKey: shopifyItem.sku,
           matchConfidence: "manual",
           matchScore: 100,
           matchType: "MANUAL_COST",
           matchReasons: [isLiquidation ? "Liquidation order (% in title)" : isEssentialHoodie ? "Essential Hoodie (auto 42 CHF)" : "Manual cost entry"],
           timeDiffHours: 0,
-          stockxStatus: "MANUAL_COST_ONLY",
-          stockxEstimatedDelivery: null,
+          supplierStatus: "MANUAL_COST_ONLY",
+          supplierEstimatedDelivery: null,
           supplierCost,
           marginAmount: margin,
           marginPercent,
@@ -1210,7 +1210,7 @@ export default function Home() {
       `Adjusted Revenue: CHF ${effectiveRevenue.toFixed(2)}\n` +
       `Supplier Cost: CHF ${effectiveCost.toFixed(2)}\n` +
       `Adjusted Margin: CHF ${(effectiveRevenue - effectiveCost).toFixed(2)} (${((effectiveRevenue - effectiveCost) / effectiveRevenue * 100).toFixed(1)}%)\n\n` +
-      `⚠️ This will ${manualCost !== null ? "mark as MANUAL COST (no StockX) and " : ""}protect this match from auto-sync updates.`;
+      `⚠️ This will ${manualCost !== null ? "mark as MANUAL COST (no Supplier) and " : ""}protect this match from auto-sync updates.`;
 
     if (!confirm(confirmMessage)) return;
 
@@ -1298,14 +1298,14 @@ export default function Home() {
 
   const [tokenRefreshing, setTokenRefreshing] = useState(false);
 
-  const refreshStockXTokenViaCookies = async () => {
-    if (!confirm("🍪 Refresh token using saved cookies?\n\nThis will:\n- Use cookies from stockx-cookies.json\n- Bypass bot detection!\n- Capture fresh bearer token\n- Store in database\n\nTakes ~5 seconds. Continue?\n\n⚠️ Make sure you've exported cookies first! See STOCKX_TOKEN_REFRESH.md")) {
+  const refreshSupplierTokenViaCookies = async () => {
+    if (!confirm("🍪 Refresh token using saved cookies?\n\nThis will:\n- Use cookies from supplier-cookies.json\n- Bypass bot detection!\n- Capture fresh bearer token\n- Store in database\n\nTakes ~5 seconds. Continue?\n\n⚠️ Make sure you've exported cookies first! See STOCKX_TOKEN_REFRESH.md")) {
       return;
     }
 
     setTokenRefreshing(true);
     try {
-      const res = await fetch("/api/auth/refresh-stockx-token-cookies", {
+      const res = await fetch("/api/auth/refresh-supplier-token-cookies", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ cronSecret: prompt("Enter CRON_SECRET (from env vars):") || "test" }),
@@ -1316,12 +1316,12 @@ export default function Home() {
       if (!res.ok) {
         if (data.error === "Missing cookies file") {
           throw new Error(
-            "❌ Missing stockx-cookies.json!\n\n" +
+            "❌ Missing supplier-cookies.json!\n\n" +
             "INSTRUCTIONS:\n" +
-            "1. Login to StockX Pro in Chrome\n" +
+            "1. Login to Supplier Pro in Chrome\n" +
             "2. Press F12 → Console tab\n" +
-            "3. Run the script from: export-stockx-cookies.js\n" +
-            "4. Save to: stockx-cookies.json\n\n" +
+            "3. Run the script from: export-supplier-cookies.js\n" +
+            "4. Save to: supplier-cookies.json\n\n" +
             "See STOCKX_TOKEN_REFRESH.md for full guide"
           );
         }
@@ -1356,16 +1356,16 @@ export default function Home() {
       const match = result.bestMatch;
       if (!match) continue;
 
-      // Use the stockxOrder from the match result (normalized)
-      const stockxOrder = match.stockxOrder;
+      // Use the supplierOrder from the match result (normalized)
+      const supplierOrder = match.supplierOrder;
       
       // Also find the raw order for pricing data
-      const rawStockxOrder = orders.find((o) => o.orderNumber === stockxOrder.stockxOrderNumber);
+      const rawStockxOrder = orders.find((o) => o.orderNumber === supplierOrder.supplierOrderNumber);
 
       // Calculate financials
       const shopifyRevenue = parseFloat(shopifyItem.totalPrice) || 0;
-      const pricingData = stockxOrder.stockxOrderNumber ? pricingByOrder[stockxOrder.stockxOrderNumber] : null;
-      const supplierCost = pricingData?.total || stockxOrder.offerAmount || rawStockxOrder?.amount || 0;
+      const pricingData = supplierOrder.supplierOrderNumber ? pricingByOrder[supplierOrder.supplierOrderNumber] : null;
+      const supplierCost = pricingData?.total || supplierOrder.offerAmount || rawStockxOrder?.amount || 0;
       const marginAmount = shopifyRevenue - supplierCost;
       const marginPercent = shopifyRevenue > 0 ? (marginAmount / shopifyRevenue) * 100 : 0;
 
@@ -1378,9 +1378,9 @@ export default function Home() {
           headers: { "content-type": "application/json" },
           body: JSON.stringify({
             shopifyOrderId: shopifyItem.shopifyOrderId,
-            stockxOrderNumber: stockxOrder.stockxOrderNumber || "",
-            estimatedDelivery: stockxOrder.estimatedDeliveryDate || null,
-            stockxStatus: stockxOrder.statusKey || "UNKNOWN",
+            supplierOrderNumber: supplierOrder.supplierOrderNumber || "",
+            estimatedDelivery: supplierOrder.estimatedDeliveryDate || null,
+            supplierStatus: supplierOrder.statusKey || "UNKNOWN",
             supplierCost: supplierCost.toFixed(2),
             marginAmount: marginAmount.toFixed(2),
             marginPercent: marginPercent.toFixed(2),
@@ -1406,17 +1406,17 @@ export default function Home() {
             shopifySizeEU: shopifyItem.sizeEU || null,
             shopifyTotalPrice: shopifyRevenue,
             shopifyCurrencyCode: shopifyItem.currencyCode || "CHF",
-            stockxOrderNumber: stockxOrder.stockxOrderNumber || "",
-            stockxProductName: stockxOrder.productName || stockxOrder.productTitle || "",
-            stockxSizeEU: stockxOrder.sizeEU || null,
-            stockxSkuKey: stockxOrder.skuKey || null,
+            supplierOrderNumber: supplierOrder.supplierOrderNumber || "",
+            supplierProductName: supplierOrder.productName || supplierOrder.productTitle || "",
+            supplierSizeEU: supplierOrder.sizeEU || null,
+            supplierSkuKey: supplierOrder.skuKey || null,
             matchConfidence: match.confidence,
             matchScore: match.score,
             matchType: "auto",
             matchReasons: match.reasons,
             timeDiffHours: match.timeDiffHours,
-            stockxStatus: stockxOrder.statusKey || "",
-            stockxEstimatedDelivery: stockxOrder.estimatedDeliveryDate || null,
+            supplierStatus: supplierOrder.statusKey || "",
+            supplierEstimatedDelivery: supplierOrder.estimatedDeliveryDate || null,
             supplierCost: supplierCost,
             marginAmount: marginAmount,
             marginPercent: marginPercent,
@@ -1450,7 +1450,7 @@ export default function Home() {
     <div className="min-h-screen bg-gray-50 p-8">
       <div className="max-w-7xl mx-auto">
         <h1 className="text-3xl font-bold text-gray-900 mb-8">
-          StockX Pro GraphQL Playground
+          Supplier Pro GraphQL Playground
         </h1>
 
         {/* Navigation */}
@@ -1502,11 +1502,11 @@ export default function Home() {
                   value={token}
                   onChange={(e) => setToken(e.target.value)}
                   className="flex-1 px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                  placeholder="Enter your StockX Pro API token (or use cookie refresh)"
+                  placeholder="Enter your Supplier Pro API token (or use cookie refresh)"
                   autoComplete="off"
                 />
                 <button
-                  onClick={refreshStockXTokenViaCookies}
+                  onClick={refreshSupplierTokenViaCookies}
                   disabled={tokenRefreshing}
                   className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed whitespace-nowrap font-semibold"
                   title="Refresh token using saved cookies (bypasses bot detection) - See STOCKX_TOKEN_REFRESH.md"
@@ -1798,7 +1798,7 @@ export default function Home() {
             🔧 Manual Matching Override
           </h2>
           <p className="text-sm text-gray-600 mb-4">
-            Force a match between a specific Shopify order and StockX order. 
+            Force a match between a specific Shopify order and Supplier order. 
             This will override any automatic matching suggestions.
           </p>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
@@ -1817,15 +1817,15 @@ export default function Home() {
               />
             </div>
             <div>
-              <label htmlFor="manualStockXOrder" className="block text-sm font-medium text-gray-700 mb-2">
-                StockX Order Number
+              <label htmlFor="manualSupplierOrder" className="block text-sm font-medium text-gray-700 mb-2">
+                Supplier Order Number
               </label>
               <input
-                id="manualStockXOrder"
-                name="manualStockXOrder"
+                id="manualSupplierOrder"
+                name="manualSupplierOrder"
                 type="text"
-                value={manualStockXOrder}
-                onChange={(e) => setManualStockXOrder(e.target.value)}
+                value={manualSupplierOrder}
+                onChange={(e) => setManualSupplierOrder(e.target.value)}
                 placeholder="03-XXXXXXXXXX"
                 className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-teal-500"
               />
@@ -1833,7 +1833,7 @@ export default function Home() {
             <div>
               <button
                 onClick={handleManualMatch}
-                disabled={!manualShopifyOrder.trim() || !manualStockXOrder.trim() || manualMatchLoading}
+                disabled={!manualShopifyOrder.trim() || !manualSupplierOrder.trim() || manualMatchLoading}
                 className="w-full px-4 py-2 bg-orange-600 text-white rounded-md hover:bg-orange-700 disabled:bg-gray-400 disabled:cursor-not-allowed"
               >
                 {manualMatchLoading ? "Fetching Shopify order..." : "Match Manually"}
@@ -1858,7 +1858,7 @@ export default function Home() {
                   .filter((item) => manualOverrides[item.lineItemId])
                   .map((item) => (
                     <p key={item.lineItemId} className="text-xs text-orange-700">
-                      {item.orderName} → {manualOverrides[item.lineItemId].stockxOrderNumber}
+                      {item.orderName} → {manualOverrides[item.lineItemId].supplierOrderNumber}
                     </p>
                   ))}
               </div>
@@ -1956,7 +1956,7 @@ export default function Home() {
                     <tr>
                       <th className="px-3 py-2 text-left">Shopify Order</th>
                       <th className="px-3 py-2 text-left">Product</th>
-                      <th className="px-3 py-2 text-left">StockX Order</th>
+                      <th className="px-3 py-2 text-left">Supplier Order</th>
                       <th className="px-3 py-2 text-left">Confidence</th>
                       <th className="px-3 py-2 text-left">Status</th>
                       <th className="px-3 py-2 text-left">Synced</th>
@@ -1976,7 +1976,7 @@ export default function Home() {
                           <tr className="border-b hover:bg-purple-50">
                             <td className="px-3 py-2 font-medium">{match.shopifyOrderName}</td>
                             <td className="px-3 py-2 text-xs">{match.shopifyProductTitle}</td>
-                            <td className="px-3 py-2 font-mono text-xs">{match.stockxOrderNumber}</td>
+                            <td className="px-3 py-2 font-mono text-xs">{match.supplierOrderNumber}</td>
                             <td className="px-3 py-2">
                               <span
                                 className={`px-2 py-1 rounded text-xs font-semibold ${
@@ -1990,7 +1990,7 @@ export default function Home() {
                                 {match.matchConfidence.toUpperCase()}
                               </span>
                             </td>
-                            <td className="px-3 py-2 text-xs">{match.stockxStatus}</td>
+                            <td className="px-3 py-2 text-xs">{match.supplierStatus}</td>
                             <td className="px-3 py-2">
                               {match.shopifyMetafieldsSynced ? (
                                 <span className="text-green-600 font-semibold">✅</span>
@@ -2140,7 +2140,7 @@ export default function Home() {
                                       <li><strong>Essential Hoodie:</strong> Auto 42 CHF cost (or override manually)</li>
                                       <li><strong>Dashboard:</strong> Will show adjusted margin immediately</li>
                                       <li><strong>Auto-sync:</strong> Will NOT overwrite manual fields</li>
-                                      <li><strong>Fulfillment:</strong> Manual cost items won't auto-match StockX</li>
+                                      <li><strong>Fulfillment:</strong> Manual cost items won't auto-match Supplier</li>
                                     </ul>
                                   </div>
                                 </div>
@@ -2160,8 +2160,8 @@ export default function Home() {
           <div className="mt-4 bg-blue-50 border border-blue-200 rounded-lg p-4">
             <h3 className="font-semibold text-blue-900 mb-2">ℹ️ How it works (FULLY AUTOMATIC)</h3>
             <ul className="text-sm text-gray-700 space-y-1">
-              <li>• <strong>Sync New Orders</strong>: 🤖 Fetches recent Shopify orders, auto-matches with StockX, <span className="font-bold text-green-700">automatically sets metafields + saves to DB for HIGH confidence matches</span>. No manual approval needed!</li>
-              <li>• <strong>Check Status Updates</strong>: 🔄 Monitors all synced orders for StockX status changes and updates Shopify metafields automatically.</li>
+              <li>• <strong>Sync New Orders</strong>: 🤖 Fetches recent Shopify orders, auto-matches with Supplier, <span className="font-bold text-green-700">automatically sets metafields + saves to DB for HIGH confidence matches</span>. No manual approval needed!</li>
+              <li>• <strong>Check Status Updates</strong>: 🔄 Monitors all synced orders for Supplier status changes and updates Shopify metafields automatically.</li>
               <li>• <strong>Database</strong>: 💾 All HIGH confidence matches stored locally. MEDIUM/LOW skipped (require manual review).</li>
               <li>• <strong>Cron Jobs</strong>: ⏰ Call <code className="bg-white px-1 rounded">/api/sync/new-orders</code> every 5-10 min and <code className="bg-white px-1 rounded">/api/sync/status-check</code> every 30-60 min for full automation.</li>
             </ul>
@@ -2173,7 +2173,7 @@ export default function Home() {
           <div className="flex items-center justify-between mb-4">
             <div>
               <h2 className="text-xl font-semibold">
-                Order Matching (Shopify ↔ StockX)
+                Order Matching (Shopify ↔ Supplier)
               </h2>
               <p className="text-sm text-gray-500 mt-1">
                 Manual matching interface (for review and overrides)
@@ -2190,7 +2190,7 @@ export default function Home() {
 
           {matchResults.length === 0 ? (
             <p className="text-gray-500 text-center py-8">
-              Click "Load Shopify Orders" to fetch recent unfulfilled orders and match with StockX
+              Click "Load Shopify Orders" to fetch recent unfulfilled orders and match with Supplier
             </p>
           ) : (
             <div className="space-y-4">
@@ -2302,13 +2302,13 @@ export default function Home() {
                         </div>
                       </div>
 
-                      {/* StockX Match Side */}
+                      {/* Supplier Match Side */}
                       <div>
                         {manualOverrides[shopify.lineItemId] ? (
                           // Manual override exists - show it with priority
                           (() => {
-                            const manualStockXOrderNum = manualOverrides[shopify.lineItemId].stockxOrderNumber;
-                            const manualStockXOrder = orders.find(o => o.orderNumber === manualStockXOrderNum);
+                            const manualSupplierOrderNum = manualOverrides[shopify.lineItemId].supplierOrderNumber;
+                            const manualSupplierOrder = orders.find(o => o.orderNumber === manualSupplierOrderNum);
                             return (
                               <>
                                 <div className="mb-3 px-2 py-1 bg-orange-100 border border-orange-400 rounded">
@@ -2317,66 +2317,66 @@ export default function Home() {
                                   </p>
                                 </div>
                                 <h3 className="font-semibold text-sm text-gray-700 mb-2">
-                                  🎯 Manually Matched StockX Order
+                                  🎯 Manually Matched Supplier Order
                                 </h3>
-                                {manualStockXOrder ? (
+                                {manualSupplierOrder ? (
                                   <div className="text-xs space-y-1">
                                     <p>
                                       <span className="font-medium">Order:</span>{" "}
                                       <span className="font-mono text-orange-700 font-semibold">
-                                        {manualStockXOrderNum}
+                                        {manualSupplierOrderNum}
                                       </span>
                                     </p>
                                     <p>
                                       <span className="font-medium">Purchase:</span>{" "}
-                                      {manualStockXOrder.purchaseDate 
-                                        ? new Date(manualStockXOrder.purchaseDate).toLocaleString("fr-CH")
+                                      {manualSupplierOrder.purchaseDate 
+                                        ? new Date(manualSupplierOrder.purchaseDate).toLocaleString("fr-CH")
                                         : "—"}
                                     </p>
                                     <p>
                                       <span className="font-medium">Product:</span>{" "}
-                                      {manualStockXOrder.displayName}
+                                      {manualSupplierOrder.displayName}
                                     </p>
                                     <p>
                                       <span className="font-medium">SKU:</span>{" "}
-                                      {manualStockXOrder.skuKey}
+                                      {manualSupplierOrder.skuKey}
                                     </p>
                                     <p>
                                       <span className="font-medium">Size:</span>{" "}
-                                      {manualStockXOrder.size || "—"}
+                                      {manualSupplierOrder.size || "—"}
                                     </p>
                                     <p>
                                       <span className="font-medium">Offer:</span> CHF{" "}
-                                      {manualStockXOrder.amount?.toFixed(2) || "—"}
-                                      {manualStockXOrder.orderNumber && pricingByOrder[manualStockXOrder.orderNumber]?.total && (
+                                      {manualSupplierOrder.amount?.toFixed(2) || "—"}
+                                      {manualSupplierOrder.orderNumber && pricingByOrder[manualSupplierOrder.orderNumber]?.total && (
                                         <span className="text-green-700 font-semibold ml-2">
-                                          (Total: CHF {pricingByOrder[manualStockXOrder.orderNumber]!.total.toFixed(2)})
+                                          (Total: CHF {pricingByOrder[manualSupplierOrder.orderNumber]!.total.toFixed(2)})
                                         </span>
                                       )}
                                     </p>
                                     <p>
                                       <span className="font-medium">Status:</span>{" "}
                                       <span className="px-1.5 py-0.5 rounded text-xs bg-gray-100">
-                                        {manualStockXOrder.statusKey || "—"}
+                                        {manualSupplierOrder.statusKey || "—"}
                                       </span>
                                     </p>
                                   </div>
                                 ) : (
                                   <p className="text-red-600 text-xs">
-                                    ⚠️ Order {manualStockXOrderNum} not found in loaded StockX orders
+                                    ⚠️ Order {manualSupplierOrderNum} not found in loaded Supplier orders
                                   </p>
                                 )}
                                 
                                 {/* Financial Summary + Manual Cost Override (for manual override) */}
-                                {manualStockXOrder && (
+                                {manualSupplierOrder && (
                                   <>
                                     <div className="mt-3 pt-2 border-t border-orange-200">
                                       {(() => {
                                         const shopifyRevenue = parseFloat(shopify.totalPrice) || 0;
-                                        const pricingData = pricingByOrder[manualStockXOrderNum];
+                                        const pricingData = pricingByOrder[manualSupplierOrderNum];
                                         const autoTTC = pricingData?.total || null;
                                         const manualCost = manualCostOverrides[shopify.lineItemId];
-                                        const displayCost = manualCost ? parseFloat(manualCost) : (autoTTC || manualStockXOrder.amount || 0);
+                                        const displayCost = manualCost ? parseFloat(manualCost) : (autoTTC || manualSupplierOrder.amount || 0);
                                         const marginAmount = shopifyRevenue - displayCost;
                                         const marginPercent = shopifyRevenue > 0 ? (marginAmount / shopifyRevenue) * 100 : 0;
                                         
@@ -2393,7 +2393,7 @@ export default function Home() {
                                                 <input
                                                   type="number"
                                                   step="0.01"
-                                                  value={manualCost || (autoTTC ? autoTTC.toFixed(2) : (manualStockXOrder.amount || 0).toFixed(2))}
+                                                  value={manualCost || (autoTTC ? autoTTC.toFixed(2) : (manualSupplierOrder.amount || 0).toFixed(2))}
                                                   onChange={(e) => setManualCostOverrides({
                                                     ...manualCostOverrides,
                                                     [shopify.lineItemId]: e.target.value
@@ -2426,10 +2426,10 @@ export default function Home() {
                                           Set on: {new Date(metafieldsSet[shopify.lineItemId].timestamp).toLocaleString("fr-CH")}
                                         </p>
                                         <p className="text-gray-600">
-                                          StockX Order: {metafieldsSet[shopify.lineItemId].stockxOrderNumber}
+                                          Supplier Order: {metafieldsSet[shopify.lineItemId].supplierOrderNumber}
                                         </p>
                                         <button
-                                          onClick={() => handleSetMetafields(shopify, manualStockXOrderNum)}
+                                          onClick={() => handleSetMetafields(shopify, manualSupplierOrderNum)}
                                           disabled={metafieldsLoading[shopify.lineItemId]}
                                           className="mt-2 text-xs text-blue-600 hover:underline disabled:text-gray-400"
                                         >
@@ -2438,7 +2438,7 @@ export default function Home() {
                                       </div>
                                     ) : (
                                       <button
-                                        onClick={() => handleSetMetafields(shopify, manualStockXOrderNum)}
+                                        onClick={() => handleSetMetafields(shopify, manualSupplierOrderNum)}
                                         disabled={metafieldsLoading[shopify.lineItemId]}
                                         className="w-full px-3 py-2 bg-purple-600 text-white text-sm font-medium rounded hover:bg-purple-700 disabled:bg-gray-400 disabled:cursor-not-allowed"
                                       >
@@ -2480,7 +2480,7 @@ export default function Home() {
                               💰 Add to DB with Manual Cost
                             </button>
                             <p className="text-xs mt-2 text-gray-600">
-                              Or enter StockX order # manually if you want to link:
+                              Or enter Supplier order # manually if you want to link:
                             </p>
                             <input
                               type="text"
@@ -2491,7 +2491,7 @@ export default function Home() {
                                   [shopify.lineItemId]: e.target.value,
                                 })
                               }
-                              placeholder="Enter StockX order # (optional)"
+                              placeholder="Enter Supplier order # (optional)"
                               className="mt-2 w-full px-2 py-1 border rounded text-xs font-mono"
                             />
                           </div>
@@ -2512,13 +2512,13 @@ export default function Home() {
                             <p className="text-xs mt-3 text-gray-600">
                               This will add to dashboard with 42 CHF supplier cost.
                               <br />
-                              No StockX matching or fulfillment.
+                              No Supplier matching or fulfillment.
                             </p>
                           </div>
                         ) : match ? (
                           <>
                             <h3 className="font-semibold text-sm text-gray-700 mb-2">
-                              🎯 Suggested StockX Match
+                              🎯 Suggested Supplier Match
                             </h3>
                             <div className="text-xs space-y-1">
                               <p>
@@ -2527,7 +2527,7 @@ export default function Home() {
                                   type="text"
                                   value={
                                     confirmedMatches[shopify.lineItemId] ||
-                                    match.stockxOrder.stockxOrderNumber
+                                    match.supplierOrder.supplierOrderNumber
                                   }
                                   onChange={(e) =>
                                     setConfirmedMatches({
@@ -2541,33 +2541,33 @@ export default function Home() {
                               <p>
                                 <span className="font-medium">Purchase:</span>{" "}
                                 {new Date(
-                                  match.stockxOrder.purchaseDate
+                                  match.supplierOrder.purchaseDate
                                 ).toLocaleString("fr-CH")}
                               </p>
                               <p>
                                 <span className="font-medium">Product:</span>{" "}
-                                {match.stockxOrder.productTitle}
+                                {match.supplierOrder.productTitle}
                               </p>
                               <p>
                                 <span className="font-medium">SKU:</span>{" "}
-                                {match.stockxOrder.skuKey}
+                                {match.supplierOrder.skuKey}
                               </p>
                               <p>
                                 <span className="font-medium">Size:</span>{" "}
-                                {match.stockxOrder.sizeEU || "—"}
+                                {match.supplierOrder.sizeEU || "—"}
                               </p>
                               <p>
                                 <span className="font-medium">Offer:</span> CHF{" "}
-                                {match.stockxOrder.offerAmount?.toFixed(2) || "—"}
-                                {match.stockxOrder.totalTTC && (
+                                {match.supplierOrder.offerAmount?.toFixed(2) || "—"}
+                                {match.supplierOrder.totalTTC && (
                                   <span className="text-green-700 font-semibold ml-2">
-                                    (Total: CHF {match.stockxOrder.totalTTC.toFixed(2)})
+                                    (Total: CHF {match.supplierOrder.totalTTC.toFixed(2)})
                                   </span>
                                 )}
                               </p>
                               <p>
                                 <span className="font-medium">Status:</span>{" "}
-                                {match.stockxOrder.statusKey || "—"}
+                                {match.supplierOrder.statusKey || "—"}
                               </p>
                             </div>
                             <div className="mt-2 pt-2 border-t border-gray-200">
@@ -2596,11 +2596,11 @@ export default function Home() {
                             <div className="mt-3 pt-2 border-t border-gray-200">
                               {(() => {
                                 const shopifyRevenue = parseFloat(shopify.totalPrice) || 0;
-                                const stockxOrderNum = confirmedMatches[shopify.lineItemId] || match.stockxOrder.stockxOrderNumber;
-                                const pricingData = pricingByOrder[stockxOrderNum];
+                                const supplierOrderNum = confirmedMatches[shopify.lineItemId] || match.supplierOrder.supplierOrderNumber;
+                                const pricingData = pricingByOrder[supplierOrderNum];
                                 const autoTTC = pricingData?.total || null;
                                 const manualCost = manualCostOverrides[shopify.lineItemId];
-                                const displayCost = manualCost ? parseFloat(manualCost) : (autoTTC || match.stockxOrder.offerAmount || 0);
+                                const displayCost = manualCost ? parseFloat(manualCost) : (autoTTC || match.supplierOrder.offerAmount || 0);
                                 const marginAmount = shopifyRevenue - displayCost;
                                 const marginPercent = shopifyRevenue > 0 ? (marginAmount / shopifyRevenue) * 100 : 0;
                                 
@@ -2617,7 +2617,7 @@ export default function Home() {
                                         <input
                                           type="number"
                                           step="0.01"
-                                          value={manualCost || (autoTTC ? autoTTC.toFixed(2) : (match.stockxOrder.offerAmount || 0).toFixed(2))}
+                                          value={manualCost || (autoTTC ? autoTTC.toFixed(2) : (match.supplierOrder.offerAmount || 0).toFixed(2))}
                                           onChange={(e) => setManualCostOverrides({
                                             ...manualCostOverrides,
                                             [shopify.lineItemId]: e.target.value
@@ -2650,14 +2650,14 @@ export default function Home() {
                                     Set on: {new Date(metafieldsSet[shopify.lineItemId].timestamp).toLocaleString("fr-CH")}
                                   </p>
                                   <p className="text-gray-600">
-                                    StockX Order: {metafieldsSet[shopify.lineItemId].stockxOrderNumber}
+                                    Supplier Order: {metafieldsSet[shopify.lineItemId].supplierOrderNumber}
                                   </p>
                                   <button
                                     onClick={() =>
                                       handleSetMetafields(
                                         shopify,
                                         confirmedMatches[shopify.lineItemId] ||
-                                          match.stockxOrder.stockxOrderNumber
+                                          match.supplierOrder.supplierOrderNumber
                                       )
                                     }
                                     disabled={metafieldsLoading[shopify.lineItemId]}
@@ -2672,7 +2672,7 @@ export default function Home() {
                                     handleSetMetafields(
                                       shopify,
                                       confirmedMatches[shopify.lineItemId] ||
-                                        match.stockxOrder.stockxOrderNumber
+                                        match.supplierOrder.supplierOrderNumber
                                     )
                                   }
                                   disabled={metafieldsLoading[shopify.lineItemId]}

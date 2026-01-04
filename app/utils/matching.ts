@@ -1,5 +1,5 @@
-export interface NormalizedStockXOrder {
-  stockxOrderNumber: string;
+export interface NormalizedSupplierOrder {
+  supplierOrderNumber: string;
   purchaseDate: string; // ISO
   offerAmount: number | null;
   totalTTC: number | null;
@@ -36,7 +36,7 @@ export interface ShopifyLineItem {
 }
 
 export interface MatchCandidate {
-  stockxOrder: NormalizedStockXOrder;
+  supplierOrder: NormalizedSupplierOrder;
   score: number;
   confidence: "high" | "medium" | "low";
   reasons: string[];
@@ -149,9 +149,9 @@ function stringSimilarity(str1: string, str2: string): number {
   return union.size > 0 ? intersection.size / union.size : 0;
 }
 
-function calculateTimeDiff(shopifyDate: string, stockxDate: string): number {
+function calculateTimeDiff(shopifyDate: string, supplierDate: string): number {
   const d1 = new Date(shopifyDate).getTime();
-  const d2 = new Date(stockxDate).getTime();
+  const d2 = new Date(supplierDate).getTime();
   return Math.abs(d1 - d2) / (1000 * 60 * 60); // hours
 }
 
@@ -163,36 +163,36 @@ function scoreTimeProximity(hours: number): number {
 }
 
 /**
- * 🔐 CAUSAL HARD FILTER: StockX order MUST be created AFTER Shopify order
+ * 🔐 CAUSAL HARD FILTER: Supplier order MUST be created AFTER Shopify order
  * 
  * Logic: In dropshipping model:
  * 1. Customer places Shopify order (sale)
- * 2. You buy from StockX to fulfill it (purchase)
+ * 2. You buy from Supplier to fulfill it (purchase)
  * 
- * Therefore: stockxCreated MUST be >= shopifyCreated (with small tolerance for clock skew)
+ * Therefore: supplierCreated MUST be >= shopifyCreated (with small tolerance for clock skew)
  * 
  * @param shopifyDate - Shopify order creation date (ISO)
- * @param stockxDate - StockX order creation date (ISO)
+ * @param supplierDate - Supplier order creation date (ISO)
  * @param toleranceMinutes - Allow small clock skew (default 5 minutes)
- * @returns true if causal order is valid (StockX after Shopify)
+ * @returns true if causal order is valid (Supplier after Shopify)
  */
 function isValidCausalOrder(
   shopifyDate: string, 
-  stockxDate: string,
+  supplierDate: string,
   toleranceMinutes: number = 5
 ): boolean {
   const shopifyTime = new Date(shopifyDate).getTime();
-  const stockxTime = new Date(stockxDate).getTime();
+  const supplierTime = new Date(supplierDate).getTime();
   const toleranceMs = toleranceMinutes * 60 * 1000;
   
-  // StockX must be created AFTER Shopify (with tolerance for clock skew)
-  // If StockX is more than 5 minutes BEFORE Shopify → INVALID
-  const isValid = stockxTime >= (shopifyTime - toleranceMs);
+  // Supplier must be created AFTER Shopify (with tolerance for clock skew)
+  // If Supplier is more than 5 minutes BEFORE Shopify → INVALID
+  const isValid = supplierTime >= (shopifyTime - toleranceMs);
   
   if (!isValid) {
-    const diffMinutes = (shopifyTime - stockxTime) / (1000 * 60);
+    const diffMinutes = (shopifyTime - supplierTime) / (1000 * 60);
     console.log(
-      `[CAUSAL] ❌ REJECTED: StockX order created ${diffMinutes.toFixed(1)} minutes ` +
+      `[CAUSAL] ❌ REJECTED: Supplier order created ${diffMinutes.toFixed(1)} minutes ` +
       `BEFORE Shopify order (violates dropship causality)`
     );
   }
@@ -200,9 +200,9 @@ function isValidCausalOrder(
   return isValid;
 }
 
-export function matchShopifyToStockX(
+export function matchShopifyToSupplier(
   shopifyItem: ShopifyLineItem,
-  stockxOrders: NormalizedStockXOrder[]
+  supplierOrders: NormalizedSupplierOrder[]
 ): MatchResult {
   // Check exclusions
   const isExcluded = EXCLUDED_SKUS.includes(shopifyItem.sku || "");
@@ -235,11 +235,11 @@ export function matchShopifyToStockX(
     console.log(`[CLEAN] "${shopifyItem.title}" → "${shopifyTitleClean}"`);
   }
 
-  for (const stockxOrder of stockxOrders) {
+  for (const supplierOrder of supplierOrders) {
     const reasons: string[] = [];
 
     // HARD FILTER 1: Product name must match 100% (or 95%+ strict)
-    const nameMatches = productNameMatch(shopifyTitleClean, stockxOrder.productTitle);
+    const nameMatches = productNameMatch(shopifyTitleClean, supplierOrder.productTitle);
     if (!nameMatches) {
       continue; // Skip this candidate entirely
     }
@@ -247,7 +247,7 @@ export function matchShopifyToStockX(
 
     // HARD FILTER 2: Size must match 100% (if both have sizes)
     // EXCEPTION: LEGO products have no sizes, skip size validation entirely
-    const isLEGO = shopifyItem.title.toLowerCase().includes("lego") || stockxOrder.productTitle.toLowerCase().includes("lego");
+    const isLEGO = shopifyItem.title.toLowerCase().includes("lego") || supplierOrder.productTitle.toLowerCase().includes("lego");
     
     if (isLEGO) {
       // LEGO products: No size validation at all
@@ -256,16 +256,16 @@ export function matchShopifyToStockX(
     } else {
       // Non-LEGO products: Strict size validation
       const shopifySize = shopifyItem.sizeEU || shopifyItem.variantTitle;
-      const stockxSize = stockxOrder.sizeEU;
+      const supplierSize = supplierOrder.sizeEU;
       
-      console.log(`[MATCH] Size comparison: Shopify "${shopifySize}" (sizeEU: "${shopifyItem.sizeEU}", variantTitle: "${shopifyItem.variantTitle}") vs StockX "${stockxSize}"`);
+      console.log(`[MATCH] Size comparison: Shopify "${shopifySize}" (sizeEU: "${shopifyItem.sizeEU}", variantTitle: "${shopifyItem.variantTitle}") vs Supplier "${supplierSize}"`);
       
-      const sizeMatches = sizeMatch(shopifySize, stockxSize);
+      const sizeMatches = sizeMatch(shopifySize, supplierSize);
       
       // For products with sizes (sneakers, clothing) - MUST match or skip
       if (shopifySize && stockxSize) {
         if (!sizeMatches) {
-          console.log(`[MATCH] ❌ Size mismatch: Shopify "${shopifySize}" vs StockX "${stockxSize}" - SKIPPING`);
+          console.log(`[MATCH] ❌ Size mismatch: Shopify "${shopifySize}" vs Supplier "${supplierSize}" - SKIPPING`);
           continue; // Different sizes = skip candidate
         }
         reasons.push("✅ Size 100% match");
@@ -274,7 +274,7 @@ export function matchShopifyToStockX(
         reasons.push("✅ No size required");
       } else {
         // One has size, other doesn't - this is suspicious for sneakers!
-        console.log(`[MATCH] ⚠️ Size data incomplete: Shopify "${shopifySize}" vs StockX "${stockxSize}" - SKIPPING for safety`);
+        console.log(`[MATCH] ⚠️ Size data incomplete: Shopify "${shopifySize}" vs Supplier "${supplierSize}" - SKIPPING for safety`);
         continue; // Skip if only one has size data
       }
     }
@@ -284,13 +284,13 @@ export function matchShopifyToStockX(
     // Prevents matching wrong orders based on time proximity alone
     const isValidCausal = isValidCausalOrder(
       shopifyItem.createdAt,
-      stockxOrder.purchaseDate,
+      supplierOrder.purchaseDate,
       5 // 5 minutes tolerance for clock skew
     );
     
     if (!isValidCausal) {
       console.log(
-        `[MATCH] ❌ CAUSAL VIOLATION: StockX order ${stockxOrder.stockxOrderNumber} ` +
+        `[MATCH] ❌ CAUSAL VIOLATION: Supplier order ${supplierOrder.supplierOrderNumber} ` +
         `created BEFORE Shopify order ${shopifyItem.orderName} - SKIPPING`
       );
       continue; // Skip candidates that violate causality
@@ -303,7 +303,7 @@ export function matchShopifyToStockX(
     // Time proximity (main differentiator)
     const timeDiffHours = calculateTimeDiff(
       shopifyItem.createdAt,
-      stockxOrder.purchaseDate
+      supplierOrder.purchaseDate
     );
     
     let score = 0;
@@ -334,16 +334,16 @@ export function matchShopifyToStockX(
     }
 
     // Optional SKU validation (bonus +10 points)
-    if (shopifyItem.sku && stockxOrder.skuKey) {
+    if (shopifyItem.sku && supplierOrder.skuKey) {
       const shopifySKU = shopifyItem.sku.trim().toUpperCase();
-      const stockxSKU = stockxOrder.skuKey.trim().toUpperCase();
+      const supplierSKU = supplierOrder.skuKey.trim().toUpperCase();
 
-      if (shopifySKU === stockxSKU) {
+      if (shopifySKU === supplierSKU) {
         score += 10;
         reasons.push("🔐 SKU exact match (bonus)");
       } else if (
-        shopifySKU.includes(stockxSKU) ||
-        stockxSKU.includes(shopifySKU)
+        shopifySKU.includes(supplierSKU) ||
+        supplierSKU.includes(shopifySKU)
       ) {
         score += 5;
         reasons.push("🔐 SKU partial match (bonus)");
@@ -360,7 +360,7 @@ export function matchShopifyToStockX(
     else confidence = "low";
 
     candidates.push({
-      stockxOrder,
+      supplierOrder,
       score,
       confidence,
       reasons,

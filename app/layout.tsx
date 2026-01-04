@@ -2,8 +2,8 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "StockX Pro GraphQL Playground",
-  description: "Test harness for StockX Pro Buying query",
+  title: "Supplier Order Management",
+  description: "Order matching and inventory management system",
 };
 
 export default function RootLayout({

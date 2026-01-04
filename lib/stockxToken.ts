@@ -1,10 +1,10 @@
 import { prisma } from "@/app/lib/prisma";
 
 /**
- * Get the current valid StockX token from database.
+ * Get the current valid Supplier token from database.
  * If no token or expired, returns null.
  */
-export async function getStockXToken(): Promise<string | null> {
+export async function getSupplierToken(): Promise<string | null> {
   try {
     const result = await prisma.$queryRaw<Array<{ token: string; expires_at: Date }>>`
       SELECT token, expires_at 
