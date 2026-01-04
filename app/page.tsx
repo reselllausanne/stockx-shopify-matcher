@@ -1455,19 +1455,34 @@ export default function Home() {
 
         {/* Navigation */}
         <div className="bg-white rounded-lg shadow p-4 mb-6">
-          <nav className="flex space-x-4">
+          <nav className="flex flex-wrap gap-3">
+            <span className="text-gray-900 font-bold py-2 px-3 bg-blue-100 rounded-md">
+              🏠 Orders (Current)
+            </span>
             <a
               href="/dashboard"
               target="_blank"
               rel="noopener noreferrer"
               className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors font-medium"
             >
-              📊 Margin Dashboard ↗
+              📊 Margin Dashboard
             </a>
-            <span className="text-gray-400">|</span>
-            <span className="text-gray-600 py-2">
-              StockX Order Matching Tool
-            </span>
+            <a
+              href="/expenses"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 transition-colors font-medium"
+            >
+              💰 Expenses
+            </a>
+            <a
+              href="/financial"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="px-4 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700 transition-colors font-medium"
+            >
+              📈 Financial Overview
+            </a>
           </nav>
         </div>
 

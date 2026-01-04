@@ -135,9 +135,31 @@ export default function DashboardPage() {
         <div className="mb-8">
           <h1 className="text-3xl font-bold text-gray-900 mb-2">📊 Margin Analytics</h1>
           <p className="text-gray-600">Order matching performance & profitability</p>
-          <a href="/" className="text-blue-600 hover:underline mt-2 inline-block">
-            ← Back to Matching
-          </a>
+          
+          {/* Navigation */}
+          <nav className="flex flex-wrap gap-3 mt-4">
+            <a
+              href="/"
+              className="px-4 py-2 bg-gray-600 text-white rounded-md hover:bg-gray-700 transition-colors font-medium"
+            >
+              🏠 Orders
+            </a>
+            <span className="text-gray-900 font-bold py-2 px-3 bg-blue-100 rounded-md">
+              📊 Dashboard (Current)
+            </span>
+            <a
+              href="/expenses"
+              className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 transition-colors font-medium"
+            >
+              💰 Expenses
+            </a>
+            <a
+              href="/financial"
+              className="px-4 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700 transition-colors font-medium"
+            >
+              📈 Financial Overview
+            </a>
+          </nav>
         </div>
 
         {/* Tabs */}

@@ -6,52 +6,68 @@ generator client {
 }
 
 datasource db {
-  provider = "sqlite"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+  schemas   = ["public"]
+}
+
+model StockXToken {
+  id        Int      @id @default(autoincrement())
+  token     String
+  createdAt DateTime @default(now())
+  expiresAt DateTime
+
+  @@schema("public")
 }
 
 model OrderMatch {
   id                      String   @id @default(uuid())
   
   // Shopify identifiers
-  shopifyOrderId          String   // gid://shopify/Order/...
-  shopifyOrderName        String   // #4654
-  shopifyLineItemId       String   @unique // unique per line item
+  shopifyOrderId          String
+  shopifyOrderName        String
+  shopifyLineItemId       String   @unique
   shopifyProductTitle     String
   shopifySku              String?
   shopifySizeEU           String?
-  shopifyTotalPrice       Float
+  shopifyTotalPrice       Decimal  @db.Decimal(10, 2)
   shopifyCurrencyCode     String   @default("CHF")
   
   // StockX identifiers
-  stockxOrderNumber       String   // 03-XXX...
+  stockxOrderNumber       String
   stockxProductName       String
   stockxSizeEU            String?
   stockxSkuKey            String?
   
   // Match metadata
-  matchConfidence         String   // "high", "medium", "low"
-  matchScore              Float    // 0-100
-  matchType               String   // "auto", "manual"
-  matchReasons            String   // JSON array: ["SKU exact", "Size match", ...]
-  timeDiffHours           Float?   // time difference between orders
+  matchConfidence         String
+  matchScore              Decimal  @db.Decimal(5, 2)
+  matchType               String
+  matchReasons            String
+  timeDiffHours           Decimal? @db.Decimal(10, 2)
   
   // StockX status (for monitoring)
-  stockxStatus            String   // "LINKED_ORDER", "ORDER_CREATED", etc.
-  stockxEstimatedDelivery String?  // ISO date
+  stockxStatus            String
+  stockxEstimatedDelivery String?
   lastStatusCheck         DateTime @default(now())
+  stockxLastSeenAt        DateTime?
+  stockxMissingCount      Int      @default(0)
   
   // Shopify metafields sync status
   shopifyMetafieldsSynced Boolean  @default(false)
   shopifyMetafieldsSetAt  DateTime?
   
-  // Financial data (for backup & analytics)
-  supplierCost            Float    // Total cost from StockX
-  marginAmount            Float    // Revenue - Cost
-  marginPercent           Float    // (Margin / Revenue) * 100
+  // Financial data
+  supplierCost            Decimal  @db.Decimal(10, 2)
+  marginAmount            Decimal  @db.Decimal(10, 2)
+  marginPercent           Decimal  @db.Decimal(5, 2)
   
   // Manual overrides
-  manualCostOverride      Float?   // User-entered cost (overrides auto)
+  manualCostOverride      Decimal? @db.Decimal(10, 2)
+  manualCaseStatus        String?
+  manualRevenueAdjustment Decimal? @db.Decimal(10, 2)
+  manualNote              String?
   
   // Timestamps
   createdAt               DateTime @default(now())
@@ -61,4 +77,73 @@ model OrderMatch {
   @@index([stockxOrderNumber])
   @@index([shopifyMetafieldsSynced])
   @@index([lastStatusCheck])
+  @@index([stockxLastSeenAt])
+  @@schema("public")
+}
+
+model OrderMetric {
+  shopifyOrderId String   @id
+  createdAt      DateTime
+  grossSales     Decimal  @db.Decimal(10, 2)
+  marginChf      Decimal  @db.Decimal(10, 2)
+  marginPct      Decimal  @db.Decimal(5, 2)
+  currency       String   @default("CHF")
+  updatedAt      DateTime @updatedAt
+
+  @@index([createdAt])
+  @@schema("public")
+}
+
+// ERP Models for AppSheet
+enum ExpenseType {
+  PERSONAL
+  BUSINESS
+
+  @@schema("public")
+}
+
+model ExpenseCategory {
+  id        String        @id @default(uuid())
+  name      String        @unique
+  type      ExpenseType   @default(PERSONAL)
+  createdAt DateTime      @default(now())
+  
+  expenses  PersonalExpense[]
+
+  @@schema("public")
+}
+
+model PaymentAccount {
+  id        String   @id @default(uuid())
+  name      String   @unique
+  provider  String
+  last4     String?
+  currency  String   @default("CHF")
+  createdAt DateTime @default(now())
+  
+  expenses  PersonalExpense[]
+
+  @@schema("public")
+}
+
+model PersonalExpense {
+  id           String         @id @default(uuid())
+  date         DateTime
+  amount       Decimal        @db.Decimal(10, 2)
+  currencyCode String         @default("CHF")
+  categoryId   String
+  accountId    String
+  note         String?
+  isBusiness   Boolean        @default(false)
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
+  
+  category     ExpenseCategory @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  account      PaymentAccount  @relation(fields: [accountId], references: [id], onDelete: Restrict)
+  
+  @@index([date])
+  @@index([categoryId])
+  @@index([accountId])
+  @@index([isBusiness])
+  @@schema("public")
 }

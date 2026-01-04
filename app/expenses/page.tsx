@@ -92,10 +92,31 @@ export default function ExpensesPage() {
         <div className="mb-8">
           <h1 className="text-3xl font-bold text-gray-900">💰 Personal Expenses</h1>
           <p className="text-gray-600 mt-2">Track your daily expenses and business costs</p>
-          <div className="mt-4 flex gap-4">
-            <a href="/" className="text-blue-600 hover:underline">← Back to Orders</a>
-            <a href="/dashboard" className="text-blue-600 hover:underline">📊 Dashboard</a>
-          </div>
+          
+          {/* Navigation */}
+          <nav className="flex flex-wrap gap-3 mt-4">
+            <a
+              href="/"
+              className="px-4 py-2 bg-gray-600 text-white rounded-md hover:bg-gray-700 transition-colors font-medium"
+            >
+              🏠 Orders
+            </a>
+            <a
+              href="/dashboard"
+              className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors font-medium"
+            >
+              📊 Dashboard
+            </a>
+            <span className="text-gray-900 font-bold py-2 px-3 bg-green-100 rounded-md">
+              💰 Expenses (Current)
+            </span>
+            <a
+              href="/financial"
+              className="px-4 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700 transition-colors font-medium"
+            >
+              📈 Financial Overview
+            </a>
+          </nav>
         </div>
 
         {/* Summary Cards */}
@@ -112,6 +133,66 @@ export default function ExpensesPage() {
           <div className="bg-green-50 p-6 rounded-lg shadow">
             <div className="text-sm font-medium text-green-700">Personal</div>
             <div className="text-2xl font-bold text-green-900">CHF {personalTotal.toFixed(2)}</div>
+          </div>
+        </div>
+
+        {/* Quick Google Ads Entry */}
+        <div className="bg-gradient-to-r from-red-50 to-orange-50 border-2 border-red-200 p-6 rounded-lg shadow mb-8">
+          <h3 className="text-lg font-bold text-red-900 mb-3">📢 Quick Google Ads Entry</h3>
+          <div className="flex gap-3 items-end">
+            <div className="flex-1">
+              <label className="block text-sm font-medium text-gray-700 mb-1">Amount (CHF)</label>
+              <input
+                type="number"
+                step="0.01"
+                placeholder="0.00"
+                id="adsAmount"
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-red-500 focus:border-red-500"
+              />
+            </div>
+            <button
+              onClick={async () => {
+                const input = document.getElementById('adsAmount') as HTMLInputElement;
+                const amt = parseFloat(input.value);
+                if (!amt || amt <= 0) {
+                  alert('Please enter a valid amount');
+                  return;
+                }
+                
+                const adsCat = categories.find(c => c.name === 'Marketing & Ads');
+                const defaultAcc = accounts[0];
+                
+                if (!adsCat) {
+                  alert('Marketing & Ads category not found');
+                  return;
+                }
+                
+                const res = await fetch('/api/expenses', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    date: new Date().toISOString().split('T')[0],
+                    amount: amt,
+                    categoryId: adsCat.id,
+                    accountId: defaultAcc.id,
+                    note: 'Google Ads',
+                    isBusiness: true,
+                    currencyCode: 'CHF'
+                  })
+                });
+                
+                if (res.ok) {
+                  alert('✅ Google Ads expense added!');
+                  input.value = '';
+                  loadData();
+                } else {
+                  alert('Error adding expense');
+                }
+              }}
+              className="px-6 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 font-medium"
+            >
+              💸 Add Google Ads
+            </button>
           </div>
         </div>
 
@@ -213,7 +294,31 @@ export default function ExpensesPage() {
 
           {/* Recent Expenses List */}
           <div className="bg-white p-6 rounded-lg shadow">
-            <h2 className="text-xl font-bold text-gray-900 mb-4">📋 Recent Expenses</h2>
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-xl font-bold text-gray-900">📋 Recent Expenses</h2>
+              <button
+                onClick={() => {
+                  // Generate CSV
+                  const header = 'Date,Amount,Category,Account,Note,Type\n';
+                  const rows = expenses.map(e => 
+                    `${new Date(e.date).toLocaleDateString()},${e.amount.toFixed(2)},${e.category.name},${e.account.name},"${e.note || ''}",${e.isBusiness ? 'Business' : 'Personal'}`
+                  ).join('\n');
+                  const csv = header + rows;
+                  
+                  // Download
+                  const blob = new Blob([csv], { type: 'text/csv' });
+                  const url = URL.createObjectURL(blob);
+                  const a = document.createElement('a');
+                  a.href = url;
+                  a.download = `expenses-${new Date().toISOString().split('T')[0]}.csv`;
+                  a.click();
+                  URL.revokeObjectURL(url);
+                }}
+                className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 font-medium text-sm"
+              >
+                📥 Export CSV
+              </button>
+            </div>
             
             <div className="space-y-2 max-h-[600px] overflow-y-auto">
               {expenses.slice(0, 50).map((exp) => (
