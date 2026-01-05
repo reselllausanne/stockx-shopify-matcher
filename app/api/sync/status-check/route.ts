@@ -214,9 +214,9 @@ export async function POST(req: Request) {
                 stockxOrderNumber: match.stockxOrderNumber,
                 estimatedDelivery: currentEstimatedDelivery,
                 stockxStatus: currentStatus,
-                supplierCost: match.supplierCost.toFixed(2),
-                marginAmount: match.marginAmount.toFixed(2),
-                marginPercent: match.marginPercent.toFixed(2),
+                supplierCost: Number(match.supplierCost).toFixed(2),
+                marginAmount: Number(match.marginAmount).toFixed(2),
+                marginPercent: Number(match.marginPercent).toFixed(2),
               }),
             });
 
