@@ -42,7 +42,7 @@ export async function POST(req: Request) {
     const marginAmount = String(body?.marginAmount ?? "0");
     const marginPercent = String(body?.marginPercent ?? "0");
 
-    // 🔒 CRITICAL: Check if this StockX order is already matched to a DIFFERENT Shopify order
+    // 🔒 CRITICAL: Check if this Supplier order is already matched to a DIFFERENT Shopify order
     const existingMatch = await prisma.orderMatch.findFirst({
       where: {
         stockxOrderNumber: stockxOrderNumber,
@@ -55,12 +55,12 @@ export async function POST(req: Request) {
 
     if (existingMatch && existingMatch.shopifyOrderId !== shopifyOrderId) {
       console.error(
-        `[SHOPIFY] ❌ DUPLICATE PREVENTION: StockX order ${stockxOrderNumber} is already matched to Shopify order ${existingMatch.shopifyOrderName}!`
+        `[SHOPIFY] ❌ DUPLICATE PREVENTION: Supplier order ${stockxOrderNumber} is already matched to Shopify order ${existingMatch.shopifyOrderName}!`
       );
       return NextResponse.json(
         {
           error: "Duplicate match prevented",
-          message: `This StockX order (${stockxOrderNumber}) is already matched to Shopify order ${existingMatch.shopifyOrderName}. Cannot match the same StockX order to multiple Shopify orders.`,
+          message: `This Supplier order (${stockxOrderNumber}) is already matched to Shopify order ${existingMatch.shopifyOrderName}. Cannot match the same Supplier order to multiple Shopify orders.`,
           existingMatch: existingMatch.shopifyOrderName,
         },
         { status: 409 } // 409 Conflict
@@ -68,7 +68,7 @@ export async function POST(req: Request) {
     }
 
     console.log(`[SHOPIFY] Setting metafields for order ${shopifyOrderId}`);
-    console.log(`  - StockX Order: ${stockxOrderNumber}`);
+    console.log(`  - Supplier Order: ${stockxOrderNumber}`);
     console.log(`  - Status: ${stockxStatus}`);
     console.log(`  - Estimated Delivery: ${estimatedDelivery || "N/A"}`);
     console.log(`  - Supplier Cost: ${supplierCost}`);

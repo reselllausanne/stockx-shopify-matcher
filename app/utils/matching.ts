@@ -263,13 +263,13 @@ export function matchShopifyToSupplier(
       const sizeMatches = sizeMatch(shopifySize, supplierSize);
       
       // For products with sizes (sneakers, clothing) - MUST match or skip
-      if (shopifySize && stockxSize) {
+      if (shopifySize && supplierSize) {
         if (!sizeMatches) {
           console.log(`[MATCH] ❌ Size mismatch: Shopify "${shopifySize}" vs Supplier "${supplierSize}" - SKIPPING`);
           continue; // Different sizes = skip candidate
         }
         reasons.push("✅ Size 100% match");
-      } else if (!shopifySize && !stockxSize) {
+      } else if (!shopifySize && !supplierSize) {
         // Both have no size (accessories) = OK
         reasons.push("✅ No size required");
       } else {
