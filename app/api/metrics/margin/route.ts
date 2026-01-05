@@ -86,8 +86,11 @@ export async function GET(request: NextRequest) {
 
     for (const match of matches) {
       // 💰 POC: Calculate effective revenue (adjusted for refunds/returns)
-      const revenueAdjustment = match.manualRevenueAdjustment || 0;
-      const effectiveRevenue = match.shopifyTotalPrice + revenueAdjustment;
+      // Convert Prisma Decimals to numbers for calculations
+      const revenue = Number(match.shopifyTotalPrice);
+      const revenueAdjustment = match.manualRevenueAdjustment ? Number(match.manualRevenueAdjustment) : 0;
+      const cost = Number(match.supplierCost);
+      const effectiveRevenue = revenue + revenueAdjustment;
       
       // Skip if fully refunded (effectiveRevenue <= 0)
       if (effectiveRevenue <= 0) {
@@ -96,7 +99,7 @@ export async function GET(request: NextRequest) {
       }
       
       // Recalculate margin with adjusted revenue
-      const adjustedMarginAmount = effectiveRevenue - match.supplierCost;
+      const adjustedMarginAmount = effectiveRevenue - cost;
       const adjustedMarginPercent = effectiveRevenue > 0 
         ? (adjustedMarginAmount / effectiveRevenue) * 100 
         : 0;
