@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/app/lib/prisma";
-import { matchShopifyToStockX, NormalizedStockXOrder } from "@/app/utils/matching";
+import { matchShopifyToSupplier, NormalizedSupplierOrder } from "@/app/utils/matching";
 
 /**
  * POST /api/sync/new-orders
@@ -18,11 +18,11 @@ import { matchShopifyToStockX, NormalizedStockXOrder } from "@/app/utils/matchin
  */
 export async function POST(req: Request) {
   try {
-    const { stockxToken } = await req.json();
+    const { supplierToken } = await req.json();
 
-    if (!stockxToken) {
+    if (!supplierToken) {
       return NextResponse.json(
-        { error: "Missing stockxToken in request body" },
+        { error: "Missing supplierToken in request body" },
         { status: 400 }
       );
     }
@@ -52,7 +52,7 @@ export async function POST(req: Request) {
         "content-type": "application/json",
       },
       body: JSON.stringify({
-        token: stockxToken,
+        token: supplierToken,
         operationName: "Buying",
         query: `query Buying(
           $first: Int
@@ -149,7 +149,7 @@ export async function POST(req: Request) {
     console.log(`[SYNC] Found ${stockxEdges.length} StockX orders`);
 
     // Normalize StockX orders (same as frontend)
-    const stockxOrders: NormalizedStockXOrder[] = stockxEdges.map((edge: any) => {
+    const stockxOrders: NormalizedSupplierOrder[] = stockxEdges.map((edge: any) => {
       const node = edge.node;
       
       // Extract EU size (priority: displayOptions > localizedSizeTitle > baseSize)
@@ -168,7 +168,7 @@ export async function POST(req: Request) {
       }
       
       return {
-        stockxOrderNumber: node.orderNumber || "",
+        supplierOrderNumber: node.orderNumber || "",
         purchaseDate: node.purchaseDate || "",
         offerAmount: node.amount || 0,
         totalTTC: null, // Will be fetched separately if needed
@@ -184,27 +184,27 @@ export async function POST(req: Request) {
       };
     });
 
-    console.log(`[SYNC] Fetched ${stockxOrders.length} StockX orders`);
+    console.log(`[SYNC] Fetched ${stockxOrders.length} Supplier orders`);
 
-    // 🔒 CRITICAL: Get already-matched StockX orders to prevent duplicates
-    const alreadyMatchedStockX = await prisma.orderMatch.findMany({
+    // 🔒 CRITICAL: Get already-matched Supplier orders to prevent duplicates
+    const alreadyMatchedSupplier = await prisma.orderMatch.findMany({
       select: {
         stockxOrderNumber: true,
       },
     });
-    const usedStockXOrderNumbers = new Set(
-      alreadyMatchedStockX.map((m) => m.stockxOrderNumber)
+    const usedSupplierOrderNumbers = new Set(
+      alreadyMatchedSupplier.map((m) => m.stockxOrderNumber)
     );
-    console.log(`[SYNC] 🔒 Found ${usedStockXOrderNumbers.size} already-matched StockX orders (will exclude from matching)`);
+    console.log(`[SYNC] 🔒 Found ${usedSupplierOrderNumbers.size} already-matched Supplier orders (will exclude from matching)`);
 
-    // Filter out already-used StockX orders
-    const availableStockXOrders = stockxOrders.filter(
-      (order) => !usedStockXOrderNumbers.has(order.stockxOrderNumber)
+    // Filter out already-used Supplier orders
+    const availableSupplierOrders = stockxOrders.filter(
+      (order) => !usedSupplierOrderNumbers.has(order.supplierOrderNumber)
     );
-    console.log(`[SYNC] ✅ ${availableStockXOrders.length} available StockX orders (${stockxOrders.length - availableStockXOrders.length} already matched)`);
+    console.log(`[SYNC] ✅ ${availableSupplierOrders.length} available Supplier orders (${stockxOrders.length - availableSupplierOrders.length} already matched)`);
 
-    // 3. Match ALL Shopify items with AVAILABLE StockX orders only
-    console.log(`[SYNC] Matching ${shopifyItems.length} Shopify items with ${availableStockXOrders.length} available StockX orders...`);
+    // 3. Match ALL Shopify items with AVAILABLE Supplier orders only
+    console.log(`[SYNC] Matching ${shopifyItems.length} Shopify items with ${availableSupplierOrders.length} available Supplier orders...`);
     
     const results = [];
     let newMatchCount = 0;
@@ -351,9 +351,9 @@ export async function POST(req: Request) {
         continue; // Skip matching algorithm for already-matched items
       }
 
-      // Run matching algorithm (only with AVAILABLE StockX orders)
+      // Run matching algorithm (only with AVAILABLE Supplier orders)
       console.log(`[SYNC] 🔍 Matching: ${shopifyItem.orderName} - ${shopifyItem.title} (Size: ${shopifyItem.sizeEU || shopifyItem.variantTitle || 'N/A'})`);
-      const matchResult = matchShopifyToStockX(shopifyItem, availableStockXOrders);
+      const matchResult = matchShopifyToSupplier(shopifyItem, availableSupplierOrders);
 
       if (!matchResult || !matchResult.bestMatch) {
         console.log(`[SYNC] ⏭️ No match found for ${shopifyItem.orderName} - ${shopifyItem.title} (skipping, not saving to DB)`);
@@ -362,10 +362,10 @@ export async function POST(req: Request) {
       }
 
       const bestMatch = matchResult.bestMatch;
-      const stockxOrder = bestMatch.stockxOrder;
+      const supplierOrder = bestMatch.supplierOrder;
       const confidence = bestMatch.confidence;
       
-      console.log(`[SYNC] ✅ Match found: ${shopifyItem.orderName} → ${stockxOrder.stockxOrderNumber} (${confidence.toUpperCase()}, score: ${bestMatch.score})`);
+      console.log(`[SYNC] ✅ Match found: ${shopifyItem.orderName} → ${supplierOrder.supplierOrderNumber} (${confidence.toUpperCase()}, score: ${bestMatch.score})`);
 
       // 🔒 ONLY process HIGH confidence matches in auto-sync
       if (confidence !== "high") {
@@ -378,7 +378,7 @@ export async function POST(req: Request) {
 
       // Calculate financials
       const shopifyRevenue = parseFloat(shopifyItem.totalPrice) || 0;
-      const supplierCost = stockxOrder.offerAmount || 0;
+      const supplierCost = supplierOrder.offerAmount || 0;
       const marginAmount = shopifyRevenue - supplierCost;
       const marginPercent = shopifyRevenue > 0 ? (marginAmount / shopifyRevenue) * 100 : 0;
 
@@ -389,10 +389,10 @@ export async function POST(req: Request) {
 
       if (existingMatch) {
         // Match exists in DB
-        console.log(`[SYNC] 📋 Match exists in DB: ${shopifyItem.orderName} → ${stockxOrder.stockxOrderNumber} (synced: ${existingMatch.shopifyMetafieldsSynced})`);
+        console.log(`[SYNC] 📋 Match exists in DB: ${shopifyItem.orderName} → ${supplierOrder.supplierOrderNumber} (synced: ${existingMatch.shopifyMetafieldsSynced})`);
         
-        const statusChanged = existingMatch.stockxStatus !== stockxOrder.statusKey;
-        const deliveryChanged = existingMatch.stockxEstimatedDelivery !== stockxOrder.estimatedDeliveryDate;
+        const statusChanged = existingMatch.stockxStatus !== supplierOrder.statusKey;
+        const deliveryChanged = existingMatch.stockxEstimatedDelivery !== supplierOrder.estimatedDeliveryDate;
         const needsSync = !existingMatch.shopifyMetafieldsSynced;
 
         // 🚀 AUTO-SET METAFIELDS if not yet synced (even if no status change)
@@ -421,8 +421,8 @@ export async function POST(req: Request) {
                 data: {
                   shopifyMetafieldsSynced: true,
                   shopifyMetafieldsSetAt: new Date(),
-                  stockxStatus: stockxOrder.statusKey || "",
-                  stockxEstimatedDelivery: stockxOrder.estimatedDeliveryDate || null,
+                  stockxStatus: supplierOrder.statusKey || "",
+                  stockxEstimatedDelivery: supplierOrder.estimatedDeliveryDate || null,
                   lastStatusCheck: new Date(),
                   updatedAt: new Date(),
                 },
@@ -465,14 +465,14 @@ export async function POST(req: Request) {
           await new Promise((resolve) => setTimeout(resolve, 500));
         } else if (statusChanged || deliveryChanged) {
           // Status/delivery changed - update both DB and Shopify
-          console.log(`[SYNC] 🔄 Status changed: ${existingMatch.stockxStatus} → ${stockxOrder.statusKey}`);
+          console.log(`[SYNC] 🔄 Status changed: ${existingMatch.stockxStatus} → ${supplierOrder.statusKey}`);
 
           // Update DB
           await prisma.orderMatch.update({
             where: { shopifyLineItemId: shopifyItem.lineItemId },
             data: {
-              stockxStatus: stockxOrder.statusKey || "",
-              stockxEstimatedDelivery: stockxOrder.estimatedDeliveryDate || null,
+              stockxStatus: supplierOrder.statusKey || "",
+              stockxEstimatedDelivery: supplierOrder.estimatedDeliveryDate || null,
               lastStatusCheck: new Date(),
               updatedAt: new Date(),
             },
@@ -485,9 +485,9 @@ export async function POST(req: Request) {
               headers: { "content-type": "application/json" },
               body: JSON.stringify({
                 shopifyOrderId: shopifyItem.shopifyOrderId,
-                stockxOrderNumber: stockxOrder.stockxOrderNumber,
-                estimatedDelivery: stockxOrder.estimatedDeliveryDate || null,
-                stockxStatus: stockxOrder.statusKey || "UNKNOWN",
+                stockxOrderNumber: supplierOrder.supplierOrderNumber,
+                estimatedDelivery: supplierOrder.estimatedDeliveryDate || null,
+                stockxStatus: supplierOrder.statusKey || "UNKNOWN",
                 supplierCost: supplierCost.toFixed(2),
                 marginAmount: marginAmount.toFixed(2),
                 marginPercent: marginPercent.toFixed(2),
@@ -501,7 +501,7 @@ export async function POST(req: Request) {
           updatedCount++;
           results.push({
             shopifyOrderName: shopifyItem.orderName,
-            stockxOrderNumber: stockxOrder.stockxOrderNumber,
+            stockxOrderNumber: supplierOrder.supplierOrderNumber,
             action: "updated",
             confidence,
           });
@@ -515,7 +515,7 @@ export async function POST(req: Request) {
         }
       } else {
         // New match - create in DB
-        console.log(`[SYNC] 🆕 NEW HIGH confidence match: ${shopifyItem.orderName} → ${stockxOrder.stockxOrderNumber}`);
+        console.log(`[SYNC] 🆕 NEW HIGH confidence match: ${shopifyItem.orderName} → ${supplierOrder.supplierOrderNumber}`);
 
         let metafieldsSynced = false;
 
@@ -527,9 +527,9 @@ export async function POST(req: Request) {
             headers: { "content-type": "application/json" },
             body: JSON.stringify({
               shopifyOrderId: shopifyItem.shopifyOrderId,
-              stockxOrderNumber: stockxOrder.stockxOrderNumber,
-              estimatedDelivery: stockxOrder.estimatedDeliveryDate || null,
-              stockxStatus: stockxOrder.statusKey || "UNKNOWN",
+              stockxOrderNumber: supplierOrder.supplierOrderNumber,
+              estimatedDelivery: supplierOrder.estimatedDeliveryDate || null,
+              stockxStatus: supplierOrder.statusKey || "UNKNOWN",
               supplierCost: supplierCost.toFixed(2),
               marginAmount: marginAmount.toFixed(2),
               marginPercent: marginPercent.toFixed(2),
@@ -562,17 +562,17 @@ export async function POST(req: Request) {
             shopifySizeEU: shopifyItem.sizeEU || null,
             shopifyTotalPrice: shopifyRevenue,
             shopifyCurrencyCode: shopifyItem.currencyCode || "CHF",
-            stockxOrderNumber: stockxOrder.stockxOrderNumber,
-            stockxProductName: stockxOrder.productName || stockxOrder.productTitle,
-            stockxSizeEU: stockxOrder.sizeEU || null,
-            stockxSkuKey: stockxOrder.skuKey || null,
+            stockxOrderNumber: supplierOrder.supplierOrderNumber,
+            stockxProductName: supplierOrder.productName || supplierOrder.productTitle,
+            stockxSizeEU: supplierOrder.sizeEU || null,
+            stockxSkuKey: supplierOrder.skuKey || null,
             matchConfidence: confidence,
             matchScore: bestMatch.score,
             matchType: "auto",
             matchReasons: JSON.stringify(bestMatch.reasons),
             timeDiffHours: bestMatch.timeDiffHours,
-            stockxStatus: stockxOrder.statusKey || "",
-            stockxEstimatedDelivery: stockxOrder.estimatedDeliveryDate || null,
+            stockxStatus: supplierOrder.statusKey || "",
+            stockxEstimatedDelivery: supplierOrder.estimatedDeliveryDate || null,
             supplierCost: supplierCost,
             marginAmount: marginAmount,
             marginPercent: marginPercent,
@@ -601,7 +601,7 @@ export async function POST(req: Request) {
         newMatchCount++;
         results.push({
           shopifyOrderName: shopifyItem.orderName,
-          stockxOrderNumber: stockxOrder.stockxOrderNumber,
+          stockxOrderNumber: supplierOrder.supplierOrderNumber,
           action: "created",
           confidence,
           autoSet: metafieldsSynced,
@@ -613,7 +613,7 @@ export async function POST(req: Request) {
     console.log(`[SYNC] ✅ SYNC COMPLETE`);
     console.log(`[SYNC] 📊 Results:`);
     console.log(`[SYNC]   - Total Shopify items: ${shopifyItems.length}`);
-    console.log(`[SYNC]   - Total StockX orders: ${stockxOrders.length}`);
+    console.log(`[SYNC]   - Total Supplier orders: ${stockxOrders.length}`);
     console.log(`[SYNC]   - New matches: ${newMatchCount}`);
     console.log(`[SYNC]   - Updated: ${updatedCount}`);
     console.log(`[SYNC]   - Auto-set metafields: ${autoSetCount}`);
