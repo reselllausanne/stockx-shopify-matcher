@@ -137,6 +137,14 @@ interface PageInfo {
 }
 
 export default function Home() {
+  // Helper function to safely convert Prisma Decimal to number for display
+  const toNumber = (value: any): number => {
+    if (typeof value === "number") return value;
+    if (typeof value === "string") return parseFloat(value) || 0;
+    if (value && typeof value === "object" && "toNumber" in value) return value.toNumber();
+    return 0;
+  };
+
   const [token, setToken] = useState("");
   const [saveToken, setSaveToken] = useState(false);
   const [query, setQuery] = useState(DEFAULT_QUERY);
@@ -1206,7 +1214,7 @@ export default function Home() {
       (manualCost !== null ? `Manual Supplier Cost: CHF ${manualCost.toFixed(2)}\n` : "") +
       `Note: ${data.note || "(none)"}\n\n` +
       `💰 Financial Impact:\n` +
-      `Original Revenue: CHF ${match.shopifyTotalPrice.toFixed(2)}\n` +
+      `Original Revenue: CHF ${toNumber(match.shopifyTotalPrice).toFixed(2)}\n` +
       `Adjusted Revenue: CHF ${effectiveRevenue.toFixed(2)}\n` +
       `Supplier Cost: CHF ${effectiveCost.toFixed(2)}\n` +
       `Adjusted Margin: CHF ${(effectiveRevenue - effectiveCost).toFixed(2)} (${((effectiveRevenue - effectiveCost) / effectiveRevenue * 100).toFixed(1)}%)\n\n` +
@@ -1999,7 +2007,7 @@ export default function Home() {
                               )}
                             </td>
                             <td className="px-3 py-2 text-xs font-semibold">
-                              {match.marginPercent.toFixed(1)}%
+                              {toNumber(match.marginPercent).toFixed(1)}%
                             </td>
                             <td className="px-3 py-2">
                               {match.manualCaseStatus ? (
@@ -2011,8 +2019,8 @@ export default function Home() {
                               )}
                               {match.manualRevenueAdjustment && (
                                 <div className="text-xs text-orange-600 font-mono mt-1">
-                                  {match.manualRevenueAdjustment >= 0 ? "+" : ""}
-                                  {match.manualRevenueAdjustment.toFixed(2)} CHF
+                                  {toNumber(match.manualRevenueAdjustment) >= 0 ? "+" : ""}
+                                  {toNumber(match.manualRevenueAdjustment).toFixed(2)} CHF
                                 </div>
                               )}
                             </td>
@@ -2075,7 +2083,7 @@ export default function Home() {
                                         className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm font-mono"
                                       />
                                       <p className="text-xs text-gray-500 mt-1">
-                                        Original: CHF {match.shopifyTotalPrice.toFixed(2)}
+                                        Original: CHF {toNumber(match.shopifyTotalPrice).toFixed(2)}
                                         {data.adjustment && ` → CHF ${(match.shopifyTotalPrice + parseFloat(data.adjustment || "0")).toFixed(2)}`}
                                       </p>
                                     </div>
@@ -2095,7 +2103,7 @@ export default function Home() {
                                         className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm font-mono"
                                       />
                                       <p className="text-xs text-gray-500 mt-1">
-                                        Current: CHF {match.supplierCost.toFixed(2)}
+                                        Current: CHF {toNumber(match.supplierCost).toFixed(2)}
                                         {data.manualCost && ` → CHF ${parseFloat(data.manualCost).toFixed(2)}`}
                                       </p>
                                     </div>
@@ -2133,7 +2141,7 @@ export default function Home() {
                                   <div className="mt-3 text-xs text-gray-600 bg-white p-3 rounded border border-orange-200">
                                     <strong>ℹ️ How it works:</strong>
                                     <ul className="mt-1 space-y-1 list-disc list-inside">
-                                      <li><strong>Full refund:</strong> Set adjustment to -{match.shopifyTotalPrice.toFixed(2)}</li>
+                                      <li><strong>Full refund:</strong> Set adjustment to -{toNumber(match.shopifyTotalPrice).toFixed(2)}</li>
                                       <li><strong>Partial refund:</strong> Set adjustment to negative amount (e.g., -50)</li>
                                       <li><strong>Store credit:</strong> Set status to CLOSED_CREDIT</li>
                                       <li><strong>Liquidation (%):</strong> Set manual cost to your buy price (e.g., 80)</li>
