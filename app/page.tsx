@@ -831,9 +831,9 @@ export default function Home() {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           shopifyOrderId: shopifyItem.shopifyOrderId,
-          supplierOrderNumber: supplierOrderNumber,
+          stockxOrderNumber: supplierOrderNumber,
           estimatedDelivery: supplierOrder.estimatedDeliveryDate || null,
-          supplierStatus: supplierOrder.statusKey || "UNKNOWN",
+          stockxStatus: supplierOrder.statusKey || "UNKNOWN",
           supplierCost: supplierCost.toFixed(2),
           marginAmount: marginAmount.toFixed(2),
           marginPercent: marginPercent.toFixed(2),
