@@ -69,19 +69,19 @@ query OrdersForMatching($first: Int!, $query: String!) {
 export async function POST(req: Request) {
   try {
     const body = await req.json().catch(() => ({}));
-    const sinceDays = Number(body?.sinceDays ?? 30);
-    const days = Number.isFinite(sinceDays) ? sinceDays : 30;
-
-    const sinceDate = new Date();
-    sinceDate.setDate(sinceDate.getDate() - days);
-    const iso = sinceDate.toISOString();
-
-    const search = `created_at:>${iso} financial_status:paid`;
-    console.log(`[SHOPIFY] Fetching orders with query: ${search}`);
+    
+    // Build query for start of year in UTC (up to 60 orders)
+    const now = new Date();
+    const yearStart = new Date(Date.UTC(now.getUTCFullYear(), 0, 1, 0, 0, 0, 0)); // Jan 1st, 00:00:00 UTC
+    const isoYearStart = yearStart.toISOString();
+    
+    // Fetch orders from start of year (we'll filter fulfilled later)
+    const search = `created_at:>=${isoYearStart}`;
+    console.log(`[SHOPIFY] Fetching up to 60 orders since ${isoYearStart.split('T')[0]} (start of year UTC)...`);
 
     const { data, errors } = await shopifyGraphQL<{
       orders: { edges: { node: any }[] };
-    }>(QUERY, { first: 100, query: search });
+    }>(QUERY, { first: 60, query: search });
 
     if (errors?.length) {
       console.error("[SHOPIFY] GraphQL errors:", errors);
@@ -93,6 +93,8 @@ export async function POST(req: Request) {
 
     const edges = data?.orders?.edges ?? [];
     const lineItems: ShopifyLineItem[] = [];
+    let skippedFulfilled = 0;
+    let skippedBeforeJan1 = 0;
 
     for (const e of edges) {
       const o = e.node;
@@ -102,6 +104,19 @@ export async function POST(req: Request) {
       const displayFinancialStatus = o.displayFinancialStatus ?? null;
       const displayFulfillmentStatus = o.displayFulfillmentStatus ?? null;
       const customerName = o.customer?.displayName ?? null;
+
+      // CRITICAL: Skip fulfilled orders (they can't be matched)
+      if (displayFulfillmentStatus === "FULFILLED" || displayFulfillmentStatus === "SHIPPED") {
+        skippedFulfilled++;
+        continue;
+      }
+
+      // CRITICAL: Skip orders before Jan 1st (double-check)
+      const orderDate = new Date(createdAt);
+      if (orderDate < yearStart) {
+        skippedBeforeJan1++;
+        continue;
+      }
 
       // CRITICAL: Use ORDER-level currentTotalPriceSet (what customer actually pays)
       const orderTotal = o.currentTotalPriceSet?.shopMoney;
@@ -175,8 +190,16 @@ export async function POST(req: Request) {
       }
     }
 
-    console.log(`[SHOPIFY] Fetched ${lineItems.length} line items from ${edges.length} orders`);
-    return NextResponse.json({ lineItems });
+    console.log(`[SHOPIFY] Fetched ${lineItems.length} line items from ${edges.length} orders (${skippedFulfilled} fulfilled skipped, ${skippedBeforeJan1} before Jan 1 skipped)`);
+    return NextResponse.json({ 
+      lineItems,
+      metadata: {
+        totalOrders: edges.length,
+        skippedFulfilled,
+        skippedBeforeJan1,
+        lineItemsCount: lineItems.length,
+      }
+    });
   } catch (err: any) {
     console.error("[/api/shopify/orders] error:", err);
     return NextResponse.json(

@@ -41,6 +41,7 @@ export async function POST(req: Request) {
     const supplierCost = String(body?.supplierCost ?? "0");
     const marginAmount = String(body?.marginAmount ?? "0");
     const marginPercent = String(body?.marginPercent ?? "0");
+    const trackingNumber = body?.trackingNumber ? String(body.trackingNumber).trim() : null; // ✅ AWB / tracking number
 
     // 🔒 CRITICAL: Check if this Supplier order is already matched to a DIFFERENT Shopify order
     const existingMatch = await prisma.orderMatch.findFirst({
@@ -119,6 +120,17 @@ export async function POST(req: Request) {
         key: "estimated_delivery",
         type: "date",
         value: estimatedDelivery,
+      });
+    }
+
+    // ✅ Add tracking_number metafield (AWB)
+    if (trackingNumber) {
+      metafields.push({
+        ownerId: shopifyOrderId,
+        namespace: "supplier",
+        key: "tracking_number",
+        type: "single_line_text_field",
+        value: trackingNumber,
       });
     }
 

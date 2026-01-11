@@ -16,20 +16,23 @@ import {
   Pie,
   Cell,
 } from "recharts";
+import AdsSpendManager from "@/app/components/AdsSpendManager";
+import MonthlyVariableCostsManager from "@/app/components/MonthlyVariableCostsManager";
 
 const VAT_RATE = 0.023; // 2.3% TVA on all sales
-
 const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#8884d8', '#82ca9d', '#ffc658', '#ff7c7c'];
 
 export default function FinancialOverviewPage() {
   const [days, setDays] = useState(30);
   const [loading, setLoading] = useState(true);
+  const [activeTab, setActiveTab] = useState<"expenses" | "ads" | "variable" | "monthly">("expenses");
   
   // Data states
   const [salesData, setSalesData] = useState<any[]>([]);
   const [expensesData, setExpensesData] = useState<any[]>([]);
   const [expensesByCategory, setExpensesByCategory] = useState<any[]>([]);
   const [dailyFinancials, setDailyFinancials] = useState<any[]>([]);
+  const [monthlyData, setMonthlyData] = useState<any>(null);
   
   // Summary stats
   const [totalSales, setTotalSales] = useState(0);
@@ -50,16 +53,18 @@ export default function FinancialOverviewPage() {
       const fromStr = from.toISOString().split('T')[0];
 
       // Fetch all data in parallel
-      const [salesRes, expensesRes, expenseSummaryRes] = await Promise.all([
+      const [salesRes, expensesRes, expenseSummaryRes, monthlyRes] = await Promise.all([
         fetch(`/api/metrics/margin?days=${days}`),
         fetch(`/api/expenses?from=${fromStr}`),
-        fetch(`/api/expenses/summary?from=${fromStr}`)
+        fetch(`/api/expenses/summary?from=${fromStr}`),
+        fetch(`/api/metrics/monthly?year=${new Date().getFullYear()}`),
       ]);
 
-      const [salesJson, expensesJson, expenseSummaryJson] = await Promise.all([
+      const [salesJson, expensesJson, expenseSummaryJson, monthlyJson] = await Promise.all([
         salesRes.json(),
         expensesRes.json(),
-        expenseSummaryRes.json()
+        expenseSummaryRes.json(),
+        monthlyRes.json(),
       ]);
 
       // Process sales data
@@ -80,8 +85,11 @@ export default function FinancialOverviewPage() {
       setTotalExpenses(totalExp);
 
       // Expenses by category
-      const catSummary = expenseSummaryJson.categorySummary || [];
+      const catSummary = expenseSummaryJson.byCategory || [];
       setExpensesByCategory(catSummary);
+
+      // Monthly data
+      setMonthlyData(monthlyJson);
 
       // Calculate daily financials
       const dailyMap = new Map<string, any>();
@@ -93,28 +101,40 @@ export default function FinancialOverviewPage() {
           sales: day.sales,
           costs: day.sales - day.marginChf,
           expenses: 0,
+          personalExpenses: 0,
+          businessExpenses: 0,
           vat: day.sales * VAT_RATE,
           margin: 0
         });
       });
 
-      // Add expenses data (group by day)
-      const dailyExpenses = new Map<string, number>();
+      // Add expenses data (group by day, split personal/business)
+      const dailyExpenses = new Map<string, { personal: number; business: number }>();
       expensesList.forEach((exp: any) => {
         const date = new Date(exp.date).toISOString().split('T')[0];
-        dailyExpenses.set(date, (dailyExpenses.get(date) || 0) + exp.amount);
+        const current = dailyExpenses.get(date) || { personal: 0, business: 0 };
+        if (exp.isBusiness) {
+          current.business += exp.amount;
+        } else {
+          current.personal += exp.amount;
+        }
+        dailyExpenses.set(date, current);
       });
 
-      dailyExpenses.forEach((amount, date) => {
+      dailyExpenses.forEach((amounts, date) => {
         const existing = dailyMap.get(date) || {
           date,
           sales: 0,
           costs: 0,
           expenses: 0,
+          personalExpenses: 0,
+          businessExpenses: 0,
           vat: 0,
           margin: 0
         };
-        existing.expenses = amount;
+        existing.personalExpenses = amounts.personal;
+        existing.businessExpenses = amounts.business;
+        existing.expenses = amounts.personal + amounts.business;
         dailyMap.set(date, existing);
       });
 
@@ -137,6 +157,24 @@ export default function FinancialOverviewPage() {
     }
   }
 
+  const handleExportCSV = async () => {
+    try {
+      const response = await fetch(`/api/metrics/monthly?year=${new Date().getFullYear()}&export=csv`);
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `monthly_financials_${new Date().getFullYear()}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+    } catch (error) {
+      console.error('Export failed:', error);
+      alert('Failed to export CSV');
+    }
+  };
+
   if (loading) {
     return (
       <div className="min-h-screen bg-gray-50 p-8 flex items-center justify-center">
@@ -145,13 +183,16 @@ export default function FinancialOverviewPage() {
     );
   }
 
+  const personalExpenses = expensesData.filter((e: any) => !e.isBusiness).reduce((sum: number, e: any) => sum + e.amount, 0);
+  const businessExpenses = expensesData.filter((e: any) => e.isBusiness).reduce((sum: number, e: any) => sum + e.amount, 0);
+
   return (
     <div className="min-h-screen bg-gray-50 p-8">
       <div className="max-w-7xl mx-auto">
         {/* Header */}
         <div className="mb-8">
           <h1 className="text-3xl font-bold text-gray-900 mb-2">📈 Financial Overview</h1>
-          <p className="text-gray-600">Complete profit & loss analysis with expenses & VAT</p>
+          <p className="text-gray-600">Complete profit & loss analysis with expenses, ads spend & VAT</p>
           
           {/* Navigation */}
           <nav className="flex flex-wrap gap-3 mt-4">
@@ -179,6 +220,55 @@ export default function FinancialOverviewPage() {
           </nav>
         </div>
 
+        {/* Tabs */}
+        <div className="mb-6 border-b border-gray-200">
+          <nav className="-mb-px flex space-x-8">
+            <button
+              onClick={() => setActiveTab("expenses")}
+              className={`py-4 px-1 border-b-2 font-medium text-sm ${
+                activeTab === "expenses"
+                  ? "border-purple-500 text-purple-600"
+                  : "border-transparent text-gray-500 hover:text-gray-700"
+              }`}
+            >
+              💸 Expenses Overview
+            </button>
+            <button
+              onClick={() => setActiveTab("ads")}
+              className={`py-4 px-1 border-b-2 font-medium text-sm ${
+                activeTab === "ads"
+                  ? "border-purple-500 text-purple-600"
+                  : "border-transparent text-gray-500 hover:text-gray-700"
+              }`}
+            >
+              📢 Ads Spend
+            </button>
+            <button
+              onClick={() => setActiveTab("variable")}
+              className={`py-4 px-1 border-b-2 font-medium text-sm ${
+                activeTab === "variable"
+                  ? "border-purple-500 text-purple-600"
+                  : "border-transparent text-gray-500 hover:text-gray-700"
+              }`}
+            >
+              📦 Variable Costs
+            </button>
+            <button
+              onClick={() => setActiveTab("monthly")}
+              className={`py-4 px-1 border-b-2 font-medium text-sm ${
+                activeTab === "monthly"
+                  ? "border-purple-500 text-purple-600"
+                  : "border-transparent text-gray-500 hover:text-gray-700"
+              }`}
+            >
+              📅 Monthly View
+            </button>
+          </nav>
+        </div>
+
+        {/* Expenses Overview Tab */}
+        {activeTab === "expenses" && (
+          <>
         {/* Period Selector */}
         <div className="mb-6 flex gap-2">
           {[7, 30, 90].map((d) => (
@@ -217,9 +307,9 @@ export default function FinancialOverviewPage() {
           </div>
           
           <div className="bg-white p-6 rounded-lg shadow">
-            <div className="text-sm font-medium text-gray-500">Expenses</div>
+                <div className="text-sm font-medium text-gray-500">All Expenses</div>
             <div className="text-2xl font-bold text-red-600">-CHF {totalExpenses.toFixed(2)}</div>
-            <div className="text-xs text-gray-500 mt-1">Ads, fees, etc.</div>
+                <div className="text-xs text-gray-500 mt-1">Personal + Business</div>
           </div>
           
           <div className="bg-white p-6 rounded-lg shadow">
@@ -254,7 +344,8 @@ export default function FinancialOverviewPage() {
               <Legend />
               <Bar dataKey="sales" name="Sales" fill="#3b82f6" />
               <Bar dataKey="costs" name="Costs" fill="#f97316" />
-              <Bar dataKey="expenses" name="Expenses" fill="#ef4444" />
+                  <Bar dataKey="personalExpenses" name="Personal Expenses" fill="#fbbf24" stackId="expenses" />
+                  <Bar dataKey="businessExpenses" name="Business Expenses" fill="#ef4444" stackId="expenses" />
               <Bar dataKey="vat" name="VAT" fill="#a855f7" />
               <Line type="monotone" dataKey="margin" name="Final Margin" stroke="#10b981" strokeWidth={3} />
             </ComposedChart>
@@ -270,11 +361,11 @@ export default function FinancialOverviewPage() {
                 <Pie
                   data={expensesByCategory}
                   dataKey="total"
-                  nameKey="category"
+                      nameKey="categoryName"
                   cx="50%"
                   cy="50%"
                   outerRadius={100}
-                  label={(entry) => `${entry.category}: CHF ${entry.total.toFixed(0)}`}
+                      label={(entry) => `${entry.categoryName}: CHF ${entry.total.toFixed(0)}`}
                 >
                   {expensesByCategory.map((entry, index) => (
                     <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
@@ -283,14 +374,6 @@ export default function FinancialOverviewPage() {
                 <Tooltip formatter={(value: any) => `CHF ${Number(value).toFixed(2)}`} />
               </PieChart>
             </ResponsiveContainer>
-            <div className="mt-4 space-y-2">
-              {expensesByCategory.slice(0, 5).map((cat, i) => (
-                <div key={i} className="flex justify-between text-sm">
-                  <span className="text-gray-700">{cat.category}</span>
-                  <span className="font-medium">CHF {cat.total.toFixed(2)}</span>
-                </div>
-              ))}
-            </div>
           </div>
 
           {/* Breakdown Table */}
@@ -308,9 +391,19 @@ export default function FinancialOverviewPage() {
               </div>
               
               <div className="flex justify-between items-center p-3 bg-gray-50 rounded">
-                <span className="font-medium text-gray-700">💸 Business Expenses</span>
+                    <span className="font-medium text-gray-700">💸 All Expenses</span>
                 <span className="text-lg font-bold text-red-600">- CHF {totalExpenses.toFixed(2)}</span>
               </div>
+                  
+                  <div className="flex justify-between items-center p-3 bg-gray-100 rounded text-sm ml-4">
+                    <span className="text-gray-600">├─ Personal</span>
+                    <span className="font-medium text-gray-700">CHF {personalExpenses.toFixed(2)}</span>
+                  </div>
+                  
+                  <div className="flex justify-between items-center p-3 bg-gray-100 rounded text-sm ml-4">
+                    <span className="text-gray-600">└─ Business</span>
+                    <span className="font-medium text-gray-700">CHF {businessExpenses.toFixed(2)}</span>
+                  </div>
               
               <div className="flex justify-between items-center p-3 bg-gray-50 rounded">
                 <span className="font-medium text-gray-700">🏛️ VAT (2.3%)</span>
@@ -333,47 +426,122 @@ export default function FinancialOverviewPage() {
               <div className="text-center text-sm text-gray-600 mt-2">
                 Margin: {totalSales > 0 ? ((finalMargin / totalSales) * 100).toFixed(2) : '0'}%
               </div>
+                </div>
+              </div>
+            </div>
+          </>
+        )}
+
+        {/* Ads Spend Tab */}
+        {activeTab === "ads" && (
+          <AdsSpendManager />
+        )}
+
+        {/* Variable Costs Tab */}
+        {activeTab === "variable" && (
+          <MonthlyVariableCostsManager />
+        )}
+
+        {/* Monthly View Tab */}
+        {activeTab === "monthly" && monthlyData && (
+          <div className="space-y-6">
+            <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+              <div className="flex items-center justify-between mb-6">
+                <div>
+                  <h2 className="text-xl font-semibold text-gray-900">📅 Monthly Financial Summary ({monthlyData.year})</h2>
+                  <p className="text-sm text-gray-500">Sales, Margin, Ads, Variable Costs & Net</p>
+                </div>
+                <button
+                  onClick={handleExportCSV}
+                  className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 font-medium"
+                >
+                  📥 Export CSV
+                </button>
+              </div>
+
+              {/* Year Totals */}
+              <div className="grid grid-cols-2 md:grid-cols-6 gap-4 mb-6">
+                <div className="bg-blue-50 p-4 rounded-lg">
+                  <div className="text-xs text-gray-600">Sales</div>
+                  <div className="text-lg font-bold text-blue-600">
+                    CHF {monthlyData.yearTotals.salesChf.toFixed(0)}
+                  </div>
+                </div>
+                <div className="bg-green-50 p-4 rounded-lg">
+                  <div className="text-xs text-gray-600">Gross Margin</div>
+                  <div className="text-lg font-bold text-green-600">
+                    CHF {monthlyData.yearTotals.grossMarginChf.toFixed(0)}
+                  </div>
+                </div>
+                <div className="bg-orange-50 p-4 rounded-lg">
+                  <div className="text-xs text-gray-600">Ads Spend</div>
+                  <div className="text-lg font-bold text-orange-600">
+                    CHF {monthlyData.yearTotals.adsSpendChf.toFixed(0)}
+                  </div>
+                </div>
+                <div className="bg-purple-50 p-4 rounded-lg">
+                  <div className="text-xs text-gray-600">Postage</div>
+                  <div className="text-lg font-bold text-purple-600">
+                    CHF {monthlyData.yearTotals.postageShippingCostChf.toFixed(0)}
+                  </div>
+                </div>
+                <div className="bg-pink-50 p-4 rounded-lg">
+                  <div className="text-xs text-gray-600">Fulfillment</div>
+                  <div className="text-lg font-bold text-pink-600">
+                    CHF {monthlyData.yearTotals.fulfillmentCostChf.toFixed(0)}
+                  </div>
+                </div>
+                <div className="bg-emerald-50 p-4 rounded-lg">
+                  <div className="text-xs text-gray-600">Net</div>
+                  <div className="text-lg font-bold text-emerald-600">
+                    CHF {monthlyData.yearTotals.netAfterVariableCostsChf.toFixed(0)}
             </div>
           </div>
         </div>
 
-        {/* Daily Details Table */}
-        <div className="bg-white p-6 rounded-lg shadow">
-          <h2 className="text-xl font-bold text-gray-900 mb-4">📅 Daily Financial Details</h2>
+              {/* Monthly Table */}
           <div className="overflow-x-auto">
             <table className="min-w-full divide-y divide-gray-200">
               <thead className="bg-gray-50">
                 <tr>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Date</th>
-                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Sales</th>
-                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Costs</th>
-                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Expenses</th>
-                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">VAT</th>
-                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Margin</th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Month</th>
+                      <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Sales</th>
+                      <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Gross Margin</th>
+                      <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Margin %</th>
+                      <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Ads</th>
+                      <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Postage</th>
+                      <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Fulfillment</th>
+                      <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Net</th>
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
-                {dailyFinancials.map((day, i) => (
-                  <tr key={i} className="hover:bg-gray-50">
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                      {new Date(day.date).toLocaleDateString()}
+                    {monthlyData.months.map((month: any) => (
+                      <tr key={month.month} className="hover:bg-gray-50">
+                        <td className="px-4 py-3 whitespace-nowrap text-sm font-medium text-gray-900">
+                          {month.month}
+                        </td>
+                        <td className="px-4 py-3 whitespace-nowrap text-sm text-right text-blue-600">
+                          CHF {month.salesChf.toFixed(2)}
+                        </td>
+                        <td className="px-4 py-3 whitespace-nowrap text-sm text-right text-green-600 font-medium">
+                          CHF {month.grossMarginChf.toFixed(2)}
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-right text-blue-600 font-medium">
-                      CHF {day.sales.toFixed(2)}
+                        <td className="px-4 py-3 whitespace-nowrap text-sm text-right text-gray-700">
+                          {month.marginPct.toFixed(1)}%
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-right text-orange-600">
-                      -CHF {day.costs.toFixed(2)}
+                        <td className="px-4 py-3 whitespace-nowrap text-sm text-right text-orange-600">
+                          CHF {month.adsSpendChf.toFixed(2)}
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-right text-red-600">
-                      -CHF {day.expenses.toFixed(2)}
+                        <td className="px-4 py-3 whitespace-nowrap text-sm text-right text-purple-600">
+                          CHF {month.postageShippingCostChf.toFixed(2)}
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-right text-purple-600">
-                      -CHF {day.vat.toFixed(2)}
+                        <td className="px-4 py-3 whitespace-nowrap text-sm text-right text-pink-600">
+                          CHF {month.fulfillmentCostChf.toFixed(2)}
                     </td>
-                    <td className={`px-6 py-4 whitespace-nowrap text-sm text-right font-bold ${
-                      day.margin >= 0 ? 'text-green-600' : 'text-red-600'
+                        <td className={`px-4 py-3 whitespace-nowrap text-sm text-right font-bold ${
+                          month.netAfterVariableCostsChf >= 0 ? 'text-emerald-600' : 'text-red-600'
                     }`}>
-                      CHF {day.margin.toFixed(2)}
+                          CHF {month.netAfterVariableCostsChf.toFixed(2)}
                     </td>
                   </tr>
                 ))}
@@ -381,8 +549,9 @@ export default function FinancialOverviewPage() {
             </table>
           </div>
         </div>
+          </div>
+        )}
       </div>
     </div>
   );
 }
-

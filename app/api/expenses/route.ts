@@ -195,3 +195,116 @@ export async function GET(req: NextRequest) {
   }
 }
 
+/**
+ * PUT /api/expenses
+ * Update an existing expense
+ */
+export async function PUT(req: NextRequest) {
+  try {
+    const body = await req.json();
+    const { id, date, amount, currencyCode, categoryId, accountId, note, isBusiness } = body;
+    
+    if (!id) {
+      return NextResponse.json(
+        { error: "Missing required field: id" },
+        { status: 400 }
+      );
+    }
+    
+    // Prepare update data
+    const updateData: any = {};
+    
+    if (date) {
+      const parsedDate = new Date(date);
+      if (isNaN(parsedDate.getTime())) {
+        return NextResponse.json(
+          { error: "Invalid date format" },
+          { status: 400 }
+        );
+      }
+      updateData.date = parsedDate;
+    }
+    
+    if (amount !== undefined) {
+      const amountNum = parseFloat(amount);
+      if (isNaN(amountNum) || amountNum <= 0) {
+        return NextResponse.json(
+          { error: "Amount must be a positive number" },
+          { status: 400 }
+        );
+      }
+      updateData.amount = new Prisma.Decimal(amountNum);
+    }
+    
+    if (currencyCode) updateData.currencyCode = currencyCode;
+    if (categoryId) updateData.categoryId = categoryId;
+    if (accountId) updateData.accountId = accountId;
+    if (note !== undefined) updateData.note = note || null;
+    if (isBusiness !== undefined) updateData.isBusiness = isBusiness;
+    
+    updateData.updatedAt = new Date();
+    
+    const expense = await prisma.personalExpense.update({
+      where: { id },
+      data: updateData,
+      include: {
+        category: true,
+        account: true,
+      },
+    });
+    
+    console.log(`[EXPENSE] Updated: ${expense.id}`);
+    
+    return NextResponse.json({
+      success: true,
+      expense: {
+        ...expense,
+        amount: expense.amount.toNumber(),
+      },
+    }, { status: 200 });
+    
+  } catch (error: any) {
+    console.error("[EXPENSE] Update error:", error);
+    return NextResponse.json(
+      { error: "Failed to update expense", details: error.message },
+      { status: 500 }
+    );
+  }
+}
+
+/**
+ * DELETE /api/expenses?id=uuid
+ * Delete an expense
+ */
+export async function DELETE(req: NextRequest) {
+  try {
+    const { searchParams } = new URL(req.url);
+    const id = searchParams.get("id");
+    
+    if (!id) {
+      return NextResponse.json(
+        { error: "Missing required parameter: id" },
+        { status: 400 }
+      );
+    }
+    
+    await prisma.personalExpense.delete({
+      where: { id },
+    });
+    
+    console.log(`[EXPENSE] Deleted: ${id}`);
+    
+    return NextResponse.json({
+      success: true,
+      message: "Expense deleted",
+    }, { status: 200 });
+    
+  } catch (error: any) {
+    console.error("[EXPENSE] Delete error:", error);
+    return NextResponse.json(
+      { error: "Failed to delete expense", details: error.message },
+      { status: 500 }
+    );
+  }
+}
+

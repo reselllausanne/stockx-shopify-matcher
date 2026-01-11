@@ -29,22 +29,36 @@ export async function GET(request: NextRequest) {
 
     // Fetch metrics directly from OrderMatch
     // Note: We fetch ALL matches (including closed/returned) to show refunds as negative impact
+    // Group by stockxPurchaseDate (StockX order date) instead of createdAt (match date)
+    // For backward compatibility, also include records where stockxPurchaseDate is null but createdAt is in range
     const matches = await prisma.orderMatch.findMany({
       where: {
+        OR: [
+          {
+            stockxPurchaseDate: {
+              gte: startDate,
+              lte: endDate,
+            },
+          },
+          {
+            stockxPurchaseDate: null,
         createdAt: {
           gte: startDate,
           lte: endDate,
         },
+          },
+        ],
         marginAmount: { gt: 0 },
         // Include closed cases for loss tracking (they show as negative when adjusted)
       },
       orderBy: {
-        createdAt: "asc",
+        stockxPurchaseDate: "asc",
       },
       select: {
         shopifyOrderId: true,
         shopifyOrderName: true,
         createdAt: true,
+        stockxPurchaseDate: true,
         shopifyTotalPrice: true,
         supplierCost: true,
         marginAmount: true,
@@ -104,7 +118,9 @@ export async function GET(request: NextRequest) {
         ? (adjustedMarginAmount / effectiveRevenue) * 100 
         : 0;
       
-      const dateKey = match.createdAt.toISOString().split("T")[0];
+      // Use StockX purchase date for grouping (fallback to createdAt for old records without purchase date)
+      const dateForGrouping = match.stockxPurchaseDate || match.createdAt;
+      const dateKey = dateForGrouping.toISOString().split("T")[0];
 
       if (!dailyMetrics.has(dateKey)) {
         dailyMetrics.set(dateKey, {

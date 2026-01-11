@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/app/lib/prisma";
-import { matchShopifyToSupplier, NormalizedSupplierOrder } from "@/app/utils/matching";
+import { matchShopifyToSupplier, NormalizedSupplierOrder, EXCLUDED_SKUS } from "@/app/utils/matching";
 
 /**
  * POST /api/sync/new-orders
@@ -152,24 +152,46 @@ export async function POST(req: Request) {
     const stockxOrders: NormalizedSupplierOrder[] = stockxEdges.map((edge: any) => {
       const node = edge.node;
       
-      // Extract EU size (priority: displayOptions > localizedSizeTitle > baseSize)
+      // 🔧 IMPROVED SIZE EXTRACTION: Handle both sneakers (EU) and apparel (ASIA/US)
+      // Priority:
+      // 1. EU displayOption (for sneakers)
+      // 2. traits.size (for apparel like "L", "XL")
+      // 3. localizedSizeTitle
+      // 4. baseSize (fallback)
       const displayOptions = node.productVariant?.sizeChart?.displayOptions ?? [];
       const euOption = displayOptions.find((opt: any) => opt.type === "eu");
+      const traitsSize = node.productVariant?.traits?.size;
+      const baseSize = node.productVariant?.sizeChart?.baseSize;
+      const baseType = node.productVariant?.sizeChart?.baseType?.toLowerCase();
       
       let size: string | null = null;
+      
       if (euOption?.size) {
+        // Sneakers: Use EU size
         size = euOption.size;
+      } else if (traitsSize) {
+        // Apparel: Use traits.size directly (e.g., "L", "XL")
+        // This handles ASIA, US, and other letter sizing
+        size = traitsSize;
       } else if (node.localizedSizeTitle) {
         size = node.localizedSizeTitle;
+      } else if (baseSize) {
+        // Fallback: build from baseType + baseSize, but normalize
+        // For apparel: "ASIA L" → "L" (remove region prefix)
+        if (baseType === "asia" || baseType === "us" || baseType === "uk") {
+          // Apparel sizing: just use the size letter/number
+          size = baseSize;
       } else {
-        const baseSize = node.productVariant?.sizeChart?.baseSize;
-        const baseType = node.productVariant?.sizeChart?.baseType;
-        size = baseSize ? `${baseType?.toUpperCase() || ""} ${baseSize}`.trim() : null;
+          // Other: keep the prefix
+          size = `${baseType?.toUpperCase() || ""} ${baseSize}`.trim();
+        }
       }
       
       return {
+        chainId: node.chainId || "",
+        orderId: node.orderId || node.orderNumber || "",
         supplierOrderNumber: node.orderNumber || "",
-        purchaseDate: node.purchaseDate || "",
+        purchaseDate: node.purchaseDate || node.creationDate || "", // Fallback to creationDate
         offerAmount: node.amount || 0,
         totalTTC: null, // Will be fetched separately if needed
         currencyCode: node.currencyCode || "CHF",
@@ -185,6 +207,12 @@ export async function POST(req: Request) {
     });
 
     console.log(`[SYNC] Fetched ${stockxOrders.length} Supplier orders`);
+    
+    // Debug: Show sample IDs (first order only, no PII)
+    if (stockxOrders.length > 0) {
+      const sample = stockxOrders[0];
+      console.log(`[SUPPLIER-PRO] Sample node IDs: orderNumber=${sample.supplierOrderNumber}, chainId=${sample.chainId?.substring(0, 10)}..., orderId=${sample.orderId}`);
+    }
 
     // 🔒 CRITICAL: Get already-matched Supplier orders to prevent duplicates
     const alreadyMatchedSupplier = await prisma.orderMatch.findMany({
@@ -206,6 +234,9 @@ export async function POST(req: Request) {
     // 3. Match ALL Shopify items with AVAILABLE Supplier orders only
     console.log(`[SYNC] Matching ${shopifyItems.length} Shopify items with ${availableSupplierOrders.length} available Supplier orders...`);
     
+    // Track suppliers matched in THIS run (for 1:1 enforcement within batch)
+    const dynamicUsedSuppliers = new Set<string>(usedSupplierOrderNumbers);
+    
     const results = [];
     let newMatchCount = 0;
     let updatedCount = 0;
@@ -224,25 +255,15 @@ export async function POST(req: Request) {
         console.log(`[SYNC] ✓ Already in DB (skipping Essential Hoodie check)`);
       }
 
-      // 🎯 AUTO-ADD: Essential Hoodies with 42 CHF cost
-      if (!existingInDb) {
-        // Check by product name AND/OR SKU pattern
-        const titleLower = shopifyItem.title.toLowerCase();
-        const isFearOfGodEssentials = titleLower.includes("fear of god essentials") || titleLower.includes("fog essentials");
-        const isHoodie = titleLower.includes("hoodie");
+      // 🎯 AUTO-ADD: Essential Hoodies with 42 CHF cost (only if SKU is in EXCLUDED_SKUS)
+      if (!existingInDb && shopifyItem.sku) {
+        // ✅ SIMPLE: If SKU is in EXCLUDED_SKUS → auto-match with 42 CHF
+        // Otherwise → ignore (let normal StockX matching happen)
+        const isExcludedSku = EXCLUDED_SKUS.includes(shopifyItem.sku);
         
-        // Also check specific SKU patterns
-        const essentialSkus = ["FWUG24K102NA", "FWUG24K101NA", "FWUG24K103NA"];
-        const matchesSKU = shopifyItem.sku && essentialSkus.includes(shopifyItem.sku);
-        
-        // Also check for SKU patterns like "192HO246258F-M"
-        const matchesSkuPattern = shopifyItem.sku && /^192HO\d{6}F-/.test(shopifyItem.sku);
-        
-        const isEssentialHoodie = (isFearOfGodEssentials && isHoodie) || matchesSKU || matchesSkuPattern;
-        
-        console.log(`[SYNC] 🔍 Essential Hoodie check: Title="${shopifyItem.title}", SKU=${shopifyItem.sku}, Match=${isEssentialHoodie} (FoG=${isFearOfGodEssentials}, Hoodie=${isHoodie}, SKU=${matchesSKU || matchesSkuPattern})`);
+        console.log(`[SYNC] 🔍 Essential Hoodie check: SKU="${shopifyItem.sku}", In EXCLUDED_SKUS=${isExcludedSku}`);
 
-        if (isEssentialHoodie) {
+        if (isExcludedSku) {
           const supplierCost = 42;
           const revenue = parseFloat(shopifyItem.totalPrice) || 0;
           const marginAmount = revenue - supplierCost;
@@ -253,6 +274,8 @@ export async function POST(req: Request) {
 
           await prisma.orderMatch.create({
             data: {
+              stockxChainId: null, // Manual Essential Hoodie - no real StockX order
+              stockxOrderId: null, // Manual Essential Hoodie - no real StockX order
               shopifyOrderId: shopifyItem.shopifyOrderId,
               shopifyOrderName: shopifyItem.orderName,
               shopifyLineItemId: shopifyItem.lineItemId,
@@ -265,6 +288,7 @@ export async function POST(req: Request) {
               stockxProductName: shopifyItem.title,
               stockxSizeEU: shopifyItem.sizeEU || null,
               stockxSkuKey: shopifyItem.sku || null,
+              stockxPurchaseDate: shopifyItem.createdAt ? new Date(shopifyItem.createdAt) : new Date(), // Use Shopify order date for manual matches
               matchConfidence: "manual",
               matchScore: 100,
               matchType: "MANUAL_COST",
@@ -278,11 +302,17 @@ export async function POST(req: Request) {
               manualCostOverride: supplierCost,
               shopifyMetafieldsSynced: false,
               lastStatusCheck: new Date(),
+              supplierSource: "MANUAL",
             },
           });
 
           console.log(`[SYNC] ✅ Essential Hoodie added to DB`);
           newMatchCount++;
+          
+          // Track this as used (for 1:1 enforcement)
+          const manualRef = `MANUAL-ESS-${shopifyItem.lineItemId.slice(-8)}`;
+          dynamicUsedSuppliers.add(manualRef);
+          
           continue; // Skip matching algorithm
         }
       }
@@ -332,6 +362,8 @@ export async function POST(req: Request) {
                 stockxOrderNumber: existingInDb.stockxOrderNumber,
                 estimatedDelivery: existingInDb.stockxEstimatedDelivery,
                 stockxStatus: existingInDb.stockxStatus,
+                stockxChainId: existingInDb.stockxChainId,
+                stockxOrderId: existingInDb.stockxOrderId,
                 supplierCost: supplierCost.toFixed(2),
                 marginAmount: newMarginAmount.toFixed(2),
                 marginPercent: newMarginPercent.toFixed(2),
@@ -351,9 +383,9 @@ export async function POST(req: Request) {
         continue; // Skip matching algorithm for already-matched items
       }
 
-      // Run matching algorithm (only with AVAILABLE Supplier orders)
+      // Run matching algorithm (with 1:1 enforcement)
       console.log(`[SYNC] 🔍 Matching: ${shopifyItem.orderName} - ${shopifyItem.title} (Size: ${shopifyItem.sizeEU || shopifyItem.variantTitle || 'N/A'})`);
-      const matchResult = matchShopifyToSupplier(shopifyItem, availableSupplierOrders);
+      const matchResult = matchShopifyToSupplier(shopifyItem, availableSupplierOrders, dynamicUsedSuppliers);
 
       if (!matchResult || !matchResult.bestMatch) {
         console.log(`[SYNC] ⏭️ No match found for ${shopifyItem.orderName} - ${shopifyItem.title} (skipping, not saving to DB)`);
@@ -405,9 +437,9 @@ export async function POST(req: Request) {
               headers: { "content-type": "application/json" },
               body: JSON.stringify({
                 shopifyOrderId: shopifyItem.shopifyOrderId,
-                stockxOrderNumber: stockxOrder.stockxOrderNumber,
-                estimatedDelivery: stockxOrder.estimatedDeliveryDate || null,
-                stockxStatus: stockxOrder.statusKey || "UNKNOWN",
+                stockxOrderNumber: stockxOrders.stockxOrderNumber,
+                estimatedDelivery: stockxOrders.estimatedDeliveryDate || null,
+                stockxStatus: stockxOrders.statusKey || "UNKNOWN",
                 supplierCost: supplierCost.toFixed(2),
                 marginAmount: marginAmount.toFixed(2),
                 marginPercent: marginPercent.toFixed(2),
@@ -563,9 +595,12 @@ export async function POST(req: Request) {
             shopifyTotalPrice: shopifyRevenue,
             shopifyCurrencyCode: shopifyItem.currencyCode || "CHF",
             stockxOrderNumber: supplierOrder.supplierOrderNumber,
+            stockxChainId: supplierOrder.chainId || null,
+            stockxOrderId: supplierOrder.orderId || null,
             stockxProductName: supplierOrder.productName || supplierOrder.productTitle,
             stockxSizeEU: supplierOrder.sizeEU || null,
             stockxSkuKey: supplierOrder.skuKey || null,
+            stockxPurchaseDate: supplierOrder.purchaseDate ? new Date(supplierOrder.purchaseDate) : null,
             matchConfidence: confidence,
             matchScore: bestMatch.score,
             matchType: "auto",
@@ -580,6 +615,33 @@ export async function POST(req: Request) {
             shopifyMetafieldsSetAt: metafieldsSynced ? new Date() : null,
           },
         });
+
+        // RUNTIME VALIDATION: Verify chainId/orderId were persisted
+        if (supplierOrder.chainId && !supplierOrder.chainId.startsWith("MANUAL")) {
+          const verification = await prisma.orderMatch.findUnique({
+            where: { shopifyLineItemId: shopifyItem.lineItemId },
+            select: { 
+              stockxOrderNumber: true, 
+              stockxChainId: true, 
+              stockxOrderId: true 
+            }
+          });
+          
+          if (verification && !verification.stockxChainId) {
+            console.error(
+              `[VALIDATION-ERROR] ❌ chainId NOT persisted!\n` +
+              `  Expected: chainId=${supplierOrder.chainId}, orderId=${supplierOrder.orderId}\n` +
+              `  Got: chainId=${verification.stockxChainId}, orderId=${verification.stockxOrderId}\n` +
+              `  OrderNumber: ${verification.stockxOrderNumber}`
+            );
+          } else if (verification) {
+            console.log(`[VALIDATION] ✅ IDs persisted: chainId=${verification.stockxChainId?.substring(0, 10)}..., orderId=${verification.stockxOrderId}`);
+          }
+        }
+
+        // Track this supplier as used (for 1:1 enforcement in THIS batch)
+        dynamicUsedSuppliers.add(supplierOrder.supplierOrderNumber);
+        console.log(`[1:1] Marked ${supplierOrder.supplierOrderNumber} as used`);
 
         // 🚀 AUTO-SYNC TO DASHBOARD: Create OrderMetric for new matches
         try {

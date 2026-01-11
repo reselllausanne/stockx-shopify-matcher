@@ -6,6 +6,7 @@ import {
   type NormalizedSupplierOrder,
   type ShopifyLineItem,
   type MatchResult,
+  EXCLUDED_SKUS,
 } from "./utils/matching";
 
 const DEFAULT_QUERY = `query Buying(
@@ -156,6 +157,9 @@ export default function Home() {
   const [pageInfo, setPageInfo] = useState<PageInfo | null>(null);
   const [lastStatus, setLastStatus] = useState<number | null>(null);
   const [lastErrors, setLastErrors] = useState<any[]>([]);
+  const [enrichedOrders, setEnrichedOrders] = useState<any[] | null>(null);
+  const [isEnriching, setIsEnriching] = useState(false);
+  const [detailsProgress, setDetailsProgress] = useState({ done: 0, total: 0 });
   const [loading, setLoading] = useState(false);
   const [isFetchingAll, setIsFetchingAll] = useState(false);
   const [pricingByOrder, setPricingByOrder] = useState<Record<string, PricingResult | null>>({});
@@ -182,9 +186,17 @@ export default function Home() {
   const [dbMatches, setDbMatches] = useState<any[]>([]);
   const [dbLoading, setDbLoading] = useState(false);
   const [syncLoading, setSyncLoading] = useState(false);
-  const [statusCheckLoading, setStatusCheckLoading] = useState(false);
   const [lastSyncResult, setLastSyncResult] = useState<any>(null);
-  const [lastStatusCheckResult, setLastStatusCheckResult] = useState<any>(null);
+  
+  // Manual entry modal state
+  const [manualEntryModal, setManualEntryModal] = useState<{
+    isOpen: boolean;
+    shopifyItem: ShopifyLineItem | null;
+    mode: 'create' | 'edit';
+    matchId?: string;
+  }>({ isOpen: false, shopifyItem: null, mode: 'create' });
+  const [manualEntryData, setManualEntryData] = useState<any>({});
+  const [originalEntryData, setOriginalEntryData] = useState<any>({}); // Pour comparer les changements
 
   // Load token from localStorage on mount
   useEffect(() => {
@@ -351,7 +363,7 @@ export default function Home() {
       }
 
       setPageInfo(newPageInfo);
-      return newPageInfo;
+      return { pageInfo: newPageInfo, orders: newOrders };
     } catch (error: any) {
       setLastErrors([{ message: error.message }]);
       return null;
@@ -360,32 +372,373 @@ export default function Home() {
     }
   };
 
-  const handleFetchFirstPage = () => {
-    fetchPage(null, false);
+  const handleFetchFirstPage = async () => {
+    await fetchPage(null, false);
   };
 
-  const handleFetchNextPage = () => {
+  const handleFetchNextPage = async () => {
     if (pageInfo?.endCursor && pageInfo.hasNextPage) {
-      fetchPage(pageInfo.endCursor, true);
+      await fetchPage(pageInfo.endCursor, true);
     } else {
       alert("No next page available");
     }
   };
 
+  // ✅ Extract AWB (Air Waybill / tracking number) from tracking URL
+  const extractAwbFromTrackingUrl = (trackingUrl: string | null): string | null => {
+    if (!trackingUrl) {
+      console.log(`[AWB] No tracking URL provided`);
+      return null;
+    }
+    
+    try {
+      const url = new URL(trackingUrl);
+      const params = url.searchParams;
+      
+      // Check common parameter names in order
+      const paramNames = ['AWB', 'awb', 'trackingNumber', 'tracking_number', 'waybill', 'consignment', 'shipmentNumber'];
+      
+      for (const param of paramNames) {
+        const value = params.get(param);
+        if (value && value.length >= 8) {
+          console.log(`[AWB] ✅ Extracted from param "${param}": ${value}`);
+          return value;
+        }
+      }
+      
+      // Fallback: check if URL path contains AWB pattern
+      const pathMatch = trackingUrl.match(/\/([A-Z0-9]{10,})/);
+      if (pathMatch && pathMatch[1].length >= 8) {
+        console.log(`[AWB] ✅ Extracted from path: ${pathMatch[1]}`);
+        return pathMatch[1];
+      }
+      
+      console.log(`[AWB] ❌ Could not extract AWB from: ${trackingUrl}`);
+      return null;
+    } catch (error) {
+      console.log(`[AWB] ❌ Error parsing URL: ${trackingUrl}`);
+      return null;
+    }
+  };
+
   const handleFetchAllPages = async () => {
     setIsFetchingAll(true);
+    setIsEnriching(false);
     setOrders([]);
     setPageInfo(null);
+    setEnrichedOrders(null);
+    setDetailsProgress({ done: 0, total: 0 });
 
-    let currentPageInfo = await fetchPage(null, false);
+    // ✅ STEP 1: Fetch all pages with Query A (Buying)
+    // Collect orders directly from fetchPage return value
+    const allLoadedOrders: OrderNode[] = [];
     
-    while (currentPageInfo?.hasNextPage && currentPageInfo?.endCursor) {
-      // Add 250ms delay between pages
+    console.log('[ENRICH] Step 1: Fetching all pages with Query A...');
+    
+    // First page
+    let currentResult = await fetchPage(null, false);
+    if (currentResult) {
+      allLoadedOrders.push(...currentResult.orders);
+      console.log(`[ENRICH] Page 1: ${currentResult.orders.length} orders (total: ${allLoadedOrders.length})`);
+    }
+    
+    // Subsequent pages
+    while (currentResult?.pageInfo?.hasNextPage && currentResult?.pageInfo?.endCursor) {
       await new Promise((resolve) => setTimeout(resolve, 250));
-      currentPageInfo = await fetchPage(currentPageInfo.endCursor, true);
+      currentResult = await fetchPage(currentResult.pageInfo.endCursor, true);
+      if (currentResult) {
+        allLoadedOrders.push(...currentResult.orders);
+        console.log(`[ENRICH] Page ${Math.ceil(allLoadedOrders.length / 50)}: ${currentResult.orders.length} orders (total: ${allLoadedOrders.length})`);
+      }
     }
 
     setIsFetchingAll(false);
+    
+    // ✅ STEP 2: Fetch Query B (GET_BUY_ORDER) for each order
+    console.log('[ENRICH] Step 2: Fetching Query B for each order...');
+    console.log(`[ENRICH] Total orders collected: ${allLoadedOrders.length}`);
+    
+    if (allLoadedOrders.length === 0) {
+      console.error('[ENRICH] ❌ No orders found! Check if fetchPage is working correctly.');
+      alert('❌ No orders to enrich. Please try fetching again.');
+      return;
+    }
+    
+    setIsEnriching(true);
+    
+    const total = allLoadedOrders.length;
+    console.log(`[ENRICH] Starting enrichment for ${total} orders...`);
+    
+    const enriched: any[] = [];
+    let done = 0;
+    
+    // ✅ Query B: Minimal working query
+    const GET_BUY_ORDER_QUERY = `
+  query GET_BUY_ORDER_FULL(
+    $chainId: String
+    $orderId: String
+  ) {
+    viewer {
+      order(chainId: $chainId, orderId: $orderId) {
+        ... on BuyOrder {
+          id
+          chainId
+          orderNumber
+          status
+          currentStatus {
+            key
+            completionStatus
+          }
+          estimatedDeliveryDateRange {
+            estimatedDeliveryDate
+            latestEstimatedDeliveryDate
+          }
+          shipping {
+            shipment {
+              trackingUrl
+              deliveryDate
+            }
+            returnShipment {
+              trackingUrl
+            }
+          }
+          currency {
+            code
+          }
+          payment {
+            settledAmount {
+              value
+              currency
+            }
+            authorizedAmount {
+              value
+              currency
+            }
+          }
+          pricing {
+            finalized {
+              local {
+                total
+                subtotal
+              }
+            }
+          }
+          product {
+            localizedSize {
+              title
+            }
+            variant {
+              id
+              product {
+                title
+                brand
+                urlKey
+                media {
+                  thumbUrl
+                  imageUrl
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+`;
+    
+    // ✅ OPTIMIZED: Batch parallel processing for faster enrichment
+    // Process 5 orders in parallel per batch, with 1.5s delay between batches
+    // This reduces time from ~3min (sequential) to ~1.2min (batched) for 94 orders
+    const BATCH_SIZE = 40; // Number of parallel requests per batch
+    const BATCH_DELAY_MS = 500; // Delay between batches (ms)
+    
+    console.log(`[ENRICH] 🚀 Starting BATCH processing: ${total} orders in batches of ${BATCH_SIZE}`);
+    console.log(`[ENRICH] ⏱️ Estimated time: ~${Math.ceil((total / BATCH_SIZE) * (BATCH_DELAY_MS / 1000))}s (vs ${total * 2}s sequential)`);
+    
+    // Helper function to fetch single order (extracted for reuse)
+    const fetchOrderDetails = async (node: OrderNode): Promise<any> => {
+      try {
+        const variables = {
+          chainId: node.chainId,
+          orderId: node.orderId,
+        };
+        
+        const response = await fetch("https://stockx.com/api/p/e", {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            "authorization": `Bearer ${token}`,
+            "apollographql-client-name": "Iron",
+            "apollographql-client-version": "2026.01.04.01",
+            "app-platform": "Iron",
+            "app-version": "2026.01.04.01",
+            "accept": "application/json",
+          },
+          body: JSON.stringify({
+            operationName: "GET_BUY_ORDER_FULL",
+            query: GET_BUY_ORDER_QUERY,
+            variables,
+          }),
+        });
+        
+        const json = await response.json();
+        const buyOrder = json.data?.viewer?.order || null;
+        const errors = json.errors || [];
+        
+        // Extract ALL useful fields from Query B
+        const trackingUrl = buyOrder?.shipping?.shipment?.trackingUrl || null;
+        const awb = extractAwbFromTrackingUrl(trackingUrl);
+        
+        const supplierCost = buyOrder?.payment?.settledAmount?.value 
+          ?? buyOrder?.payment?.authorizedAmount?.value 
+          ?? buyOrder?.pricing?.finalized?.local?.total 
+          ?? null;
+        
+        // Extract product info from Query B (more accurate than Query A)
+        const productTitleB = buyOrder?.product?.variant?.product?.title || null;
+        const brandB = buyOrder?.product?.variant?.product?.brand || null;
+        const sizeB = buyOrder?.product?.localizedSize?.title || null;
+        const imageUrlB = buyOrder?.product?.variant?.product?.media?.imageUrl || null;
+        const thumbUrlB = buyOrder?.product?.variant?.product?.media?.thumbUrl || null;
+        
+        // Extract status and delivery info
+        const statusB = buyOrder?.status || null;
+        const statusKeyB = buyOrder?.currentStatus?.key || null;
+        const estimatedDeliveryB = buyOrder?.estimatedDeliveryDateRange?.estimatedDeliveryDate || null;
+        const latestEstimatedDeliveryB = buyOrder?.estimatedDeliveryDateRange?.latestEstimatedDeliveryDate || null;
+        
+        const enrichedData = {
+          ...node, // ✅ Keep ALL Query A data (includes SKU: styleId, model, etc.)
+          buyOrder,
+          errors,
+          awb,
+          supplierCost,
+          productTitleB,
+          brandB,
+          sizeB,
+          imageUrlB,
+          thumbUrlB,
+          statusB,
+          statusKeyB,
+          trackingUrl,
+          estimatedDeliveryB,
+          latestEstimatedDeliveryB,
+        };
+        
+        return {
+          node,
+          enriched: enrichedData,
+          success: !!buyOrder,
+          productTitleB: productTitleB || null,
+          sizeB: sizeB || null,
+          brandB: brandB || null,
+          supplierCost: supplierCost || null,
+          statusKeyB: statusKeyB || null,
+          statusB: statusB || null,
+          awb: awb || null,
+          trackingUrl: trackingUrl || null,
+        };
+      } catch (error: any) {
+        console.error(`[ENRICH] Error fetching ${node.orderNumber}:`, error.message);
+        return {
+          node,
+          enriched: {
+            ...node,
+            buyOrder: null,
+            errors: [{ message: error.message }],
+            awb: null,
+            supplierCost: null,
+          },
+          success: false,
+          error: error.message,
+        };
+      }
+    };
+    
+    // Process orders in batches
+    const totalBatches = Math.ceil(total / BATCH_SIZE);
+    for (let batchIndex = 0; batchIndex < totalBatches; batchIndex++) {
+      const batchStart = batchIndex * BATCH_SIZE;
+      const batchEnd = Math.min(batchStart + BATCH_SIZE, total);
+      const batch = allLoadedOrders.slice(batchStart, batchEnd);
+      const batchNum = batchIndex + 1;
+      
+      console.log(`[ENRICH] 📦 Batch ${batchNum}/${totalBatches}: Processing ${batch.length} orders in parallel...`);
+      
+      // Process all orders in this batch in parallel
+      const batchPromises = batch.map(node => fetchOrderDetails(node));
+      const batchResults = await Promise.all(batchPromises);
+      
+      // Process results and update progress
+      for (const result of batchResults) {
+        enriched.push(result.enriched);
+        done++;
+        setDetailsProgress({ done, total });
+        
+        if (result.success) {
+          console.log(`[ENRICH] ${done}/${total}: ${result.node.orderNumber} ✅`);
+          console.log(`  Product: ${result.productTitleB || 'N/A'}`);
+          console.log(`  Size: ${result.sizeB || 'N/A'} | Brand: ${result.brandB || 'N/A'}`);
+          console.log(`  Cost: ${result.supplierCost || 'N/A'} CHF | Status: ${result.statusKeyB || result.statusB || 'N/A'}`);
+          console.log(`  AWB: ${result.awb || 'N/A'} | Tracking: ${result.trackingUrl ? '✅' : '❌'}`);
+        } else {
+          console.log(`[ENRICH] ${done}/${total}: ${result.node.orderNumber} ❌ (${result.error || 'no data'})`);
+        }
+      }
+      
+      // Wait before next batch (except after the last batch)
+      if (batchNum < totalBatches) {
+        const remainingBatches = totalBatches - batchNum;
+        const estimatedSecondsRemaining = Math.ceil(remainingBatches * (BATCH_DELAY_MS / 1000));
+        console.log(`[ENRICH] ⏳ Waiting ${BATCH_DELAY_MS / 1000}s before next batch... (~${estimatedSecondsRemaining}s remaining)`);
+        await new Promise((resolve) => setTimeout(resolve, BATCH_DELAY_MS));
+      }
+    }
+    
+    console.log(`[ENRICH] ✅ Complete: ${enriched.length} orders enriched`);
+    
+    // ✅ CRITICAL: Verify no duplicates and data integrity
+    const enrichedIds = enriched.map(o => o.orderId);
+    const uniqueIds = new Set(enrichedIds);
+    
+    if (uniqueIds.size !== enriched.length) {
+      console.error(`[ENRICH] ⚠️ WARNING: Found duplicates! ${enriched.length} orders but only ${uniqueIds.size} unique IDs`);
+      // Remove duplicates (keep first occurrence)
+      const seen = new Set<string>();
+      const deduplicated = enriched.filter(o => {
+        if (seen.has(o.orderId)) {
+          console.log(`[ENRICH] Removing duplicate: ${o.orderNumber} (${o.orderId})`);
+          return false;
+        }
+        seen.add(o.orderId);
+        return true;
+      });
+      console.log(`[ENRICH] Deduplicated: ${deduplicated.length} orders (removed ${enriched.length - deduplicated.length} duplicates)`);
+      setEnrichedOrders(deduplicated);
+    } else {
+      console.log(`[ENRICH] ✅ No duplicates detected (${uniqueIds.size} unique orders)`);
+      setEnrichedOrders(enriched);
+    }
+    
+    // ✅ VERIFY: Query A fields are preserved
+    const sampleOriginal = allLoadedOrders[0];
+    const sampleEnriched = enriched[0];
+    console.log(`[ENRICH] Data integrity check (first order):`);
+    console.log(`  Query A fields preserved:`, {
+      orderNumber: sampleOriginal.orderNumber === sampleEnriched.orderNumber,
+      displayName: sampleOriginal.displayName === sampleEnriched.displayName,
+      size: sampleOriginal.size === sampleEnriched.size,
+      skuKey: sampleOriginal.skuKey === sampleEnriched.skuKey,
+      amount: sampleOriginal.amount === sampleEnriched.amount,
+    });
+    console.log(`  New Query B fields added:`, {
+      hasAwb: !!sampleEnriched.awb,
+      hasSupplierCost: !!sampleEnriched.supplierCost,
+      hasProductTitleB: !!sampleEnriched.productTitleB,
+      hasSizeB: !!sampleEnriched.sizeB,
+    });
+    
+    setIsEnriching(false);
   };
 
   const handleClearResults = () => {
@@ -535,22 +888,59 @@ export default function Home() {
       const items = data.lineItems || [];
       setShopifyItems(items);
 
-      // Normalize Supplier orders for matching
-      const normalizedSupplier: NormalizedSupplierOrder[] = orders.map((o) => ({
-        supplierOrderNumber: o.orderNumber || "",
-        purchaseDate: o.purchaseDate || "",
-        offerAmount: o.amount,
-        totalTTC:
-          o.orderNumber && pricingByOrder[o.orderNumber]?.total != null
-            ? pricingByOrder[o.orderNumber]!.total
-            : null,
-        productTitle: o.displayName,
-        skuKey: o.skuKey,
-        sizeEU: o.size,
-        statusKey: o.statusKey,
-        statusTitle: o.statusTitle,
-        currencyCode: o.currencyCode,
-      }));
+      // Normalize Supplier orders for matching (use enriched if available)
+      // ✅ Use enriched orders if available (prefer enriched for AWB + supplierCost)
+      const sourceOrders = enrichedOrders || orders;
+      console.log(`[MATCHING] Using ${enrichedOrders ? 'ENRICHED' : 'BASIC'} orders (${sourceOrders.length} total)`);
+      
+      // ✅ CRITICAL: Verify no duplicates in source
+      const sourceIds = sourceOrders.map(o => o.orderId);
+      const uniqueSourceIds = new Set(sourceIds);
+      if (uniqueSourceIds.size !== sourceOrders.length) {
+        console.error(`[MATCHING] ⚠️ WARNING: Source has duplicates! ${sourceOrders.length} orders but only ${uniqueSourceIds.size} unique IDs`);
+      }
+      
+      const normalizedSupplier: NormalizedSupplierOrder[] = sourceOrders.map((o) => {
+        // ✅ Priority 1: Use Query B supplierCost (if enriched)
+        // ✅ Priority 2: Fallback to old pricingByOrder system
+        const supplierCostFromB = (o as any).supplierCost ?? null;
+        const supplierCostFromPricing = o.orderNumber && pricingByOrder[o.orderNumber]?.total != null
+          ? pricingByOrder[o.orderNumber]!.total
+          : null;
+        
+        const finalTotalTTC = supplierCostFromB ?? supplierCostFromPricing;
+        
+        return {
+          supplierOrderNumber: o.orderNumber || "",
+          chainId: o.chainId || "",
+          orderId: o.orderId || "",
+          purchaseDate: o.purchaseDate || "",
+          offerAmount: o.amount,
+          totalTTC: finalTotalTTC,  // ✅ Query B supplier cost (priority)
+          productTitle: o.displayName,  // ✅ Query A
+          skuKey: o.skuKey,             // ✅ Query A
+          sizeEU: o.size,               // ✅ Query A
+          statusKey: o.statusKey,       // ✅ Query A
+          statusTitle: o.statusTitle,   // ✅ Query A
+          currencyCode: o.currencyCode, // ✅ Query A
+          awb: (o as any).awb || null,  // ✅ Query B AWB (tracking number)
+          trackingUrl: (o as any).trackingUrl || null,  // ✅ Query B full tracking URL
+        };
+      });
+      
+      console.log(`[MATCHING] Normalized ${normalizedSupplier.length} supplier orders for matching`);
+      
+      // ✅ Count how many have Query B supplierCost
+      const withSupplierCostB = normalizedSupplier.filter(o => o.totalTTC !== null).length;
+      console.log(`[MATCHING] ${withSupplierCostB}/${normalizedSupplier.length} orders have totalTTC (Query B supplier cost)`);
+      
+      console.log(`[MATCHING] Sample normalized order:`, {
+        orderNumber: normalizedSupplier[0]?.supplierOrderNumber,
+        productTitle: normalizedSupplier[0]?.productTitle,
+        skuKey: normalizedSupplier[0]?.skuKey,
+        sizeEU: normalizedSupplier[0]?.sizeEU,
+        totalTTC: normalizedSupplier[0]?.totalTTC,  // ✅ Should show Query B cost
+      });
 
       // 🔒 CRITICAL: Filter out already-matched Supplier orders
       let availableSupplier = normalizedSupplier;
@@ -665,21 +1055,36 @@ export default function Home() {
         console.log(`[MANUAL MATCH] Fetched Shopify order #${cleanShopifyNum}:`, shopifyItem);
 
         // Create match results for the fetched items (to show auto-suggestions if user wants)
-        const normalizedSupplier: NormalizedSupplierOrder[] = orders.map((o) => ({
-          supplierOrderNumber: o.orderNumber || "",
-          purchaseDate: o.purchaseDate || "",
-          offerAmount: o.amount,
-          totalTTC:
-            o.orderNumber && pricingByOrder[o.orderNumber]?.total != null
-              ? pricingByOrder[o.orderNumber]!.total
-              : null,
-          productTitle: o.displayName,
-          skuKey: o.skuKey,
-          sizeEU: o.size,
-          statusKey: o.statusKey,
-          statusTitle: o.statusTitle,
-          currencyCode: o.currencyCode,
-        }));
+        const sourceOrders = enrichedOrders || orders;
+        console.log(`[MANUAL MATCH] Using ${enrichedOrders ? 'ENRICHED' : 'BASIC'} orders (${sourceOrders.length} total)`);
+        
+        const normalizedSupplier: NormalizedSupplierOrder[] = sourceOrders.map((o) => {
+          // ✅ Priority 1: Use Query B supplierCost (if enriched)
+          // ✅ Priority 2: Fallback to old pricingByOrder system
+          const supplierCostFromB = (o as any).supplierCost ?? null;
+          const supplierCostFromPricing = o.orderNumber && pricingByOrder[o.orderNumber]?.total != null
+            ? pricingByOrder[o.orderNumber]!.total
+            : null;
+          
+          const finalTotalTTC = supplierCostFromB ?? supplierCostFromPricing;
+          
+          return {
+            supplierOrderNumber: o.orderNumber || "",
+            chainId: o.chainId || "",
+            orderId: o.orderId || "",
+            purchaseDate: o.purchaseDate || "",
+            offerAmount: o.amount,
+            totalTTC: finalTotalTTC,  // ✅ Query B supplier cost (priority)
+            productTitle: o.displayName,  // ✅ Query A
+            skuKey: o.skuKey,             // ✅ Query A
+            sizeEU: o.size,               // ✅ Query A
+            statusKey: o.statusKey,       // ✅ Query A
+            statusTitle: o.statusTitle,   // ✅ Query A
+            currencyCode: o.currencyCode, // ✅ Query A
+            awb: (o as any).awb || null,  // ✅ Query B AWB (tracking number)
+            trackingUrl: (o as any).trackingUrl || null,  // ✅ Query B full tracking URL
+          };
+        });
 
         const newMatchResults = fetchedLineItems.map((item: ShopifyLineItem) =>
           matchShopifyToSupplier(item, normalizedSupplier)
@@ -747,12 +1152,17 @@ export default function Home() {
 
     try {
       // Find the Supplier order for additional details
-      const supplierOrder = orders.find((o) => o.orderNumber === supplierOrderNumber);
+      // ✅ Try enrichedOrders first (has AWB), fallback to orders
+      const supplierOrder = (enrichedOrders || orders).find((o) => o.orderNumber === supplierOrderNumber);
 
       if (!supplierOrder) {
         alert(`⚠️ Supplier order ${supplierOrderNumber} not found in loaded orders.\n\nPlease fetch the Supplier order first.`);
         return;
       }
+      
+      // ✅ Extract AWB and tracking URL from enriched order (if available)
+      const stockxAwb = (supplierOrder as any).awb || null;
+      const stockxTrackingUrl = (supplierOrder as any).trackingUrl || null;
 
       // Calculate financials
       // 1. Shopify revenue (sale price for this line item)
@@ -765,10 +1175,21 @@ export default function Home() {
       if (manualCostOverrides[lineItemId]) {
         supplierCost = parseFloat(manualCostOverrides[lineItemId]) || 0;
       } else {
-        // Try to get TTC from pricing data
+        // ✅ Priority 1: Use Query B supplierCost (if enriched)
+        const supplierCostFromB = (supplierOrder as any).supplierCost ?? null;
+        
+        // ✅ Priority 2: Try to get TTC from old pricing data
         const pricingData = pricingByOrder[supplierOrderNumber];
-        if (pricingData?.total != null) {
-          supplierCost = pricingData.total;
+        const supplierCostFromPricing = pricingData?.total ?? null;
+        
+        if (supplierCostFromB != null) {
+          // ✅ Use Query B cost (most accurate)
+          supplierCost = supplierCostFromB;
+          console.log(`[METAFIELDS] Using Query B supplier cost: ${supplierCost} CHF for ${supplierOrderNumber}`);
+        } else if (supplierCostFromPricing != null) {
+          // Use old pricing system
+          supplierCost = supplierCostFromPricing;
+          console.log(`[METAFIELDS] Using pricing system cost: ${supplierCost} CHF for ${supplierOrderNumber}`);
         } else {
           // Fallback to offer amount (not ideal, but better than nothing)
           supplierCost = supplierOrder.amount || 0;
@@ -837,6 +1258,7 @@ export default function Home() {
           supplierCost: supplierCost.toFixed(2),
           marginAmount: marginAmount.toFixed(2),
           marginPercent: marginPercent.toFixed(2),
+          trackingNumber: stockxAwb, // ✅ Pass AWB to metafields
         }),
       });
 
@@ -880,6 +1302,8 @@ export default function Home() {
             shopifySizeEU: shopifyItem.sizeEU,
             shopifyTotalPrice: shopifyRevenue,
             shopifyCurrencyCode: shopifyItem.currencyCode || "CHF",
+            stockxChainId: supplierOrder.chainId || null, // ✅ Pass chainId for Query B
+            stockxOrderId: supplierOrder.orderId || null, // ✅ Pass orderId for Query B
             stockxOrderNumber: supplierOrderNumber,
             stockxProductName: supplierOrder.displayName,
             stockxSizeEU: supplierOrder.size,
@@ -890,6 +1314,8 @@ export default function Home() {
             matchReasons: bestMatch?.reasons || ["Manual match"],
             timeDiffHours: bestMatch?.timeDiffHours || 0,
             stockxStatus: supplierOrder.statusKey || "",
+            stockxAwb: stockxAwb, // ✅ Pass AWB to DB
+            stockxTrackingUrl: stockxTrackingUrl, // ✅ Pass full tracking URL to DB
             stockxEstimatedDelivery: supplierOrder.estimatedDeliveryDate || null,
             supplierCost: supplierCost,
             marginAmount: marginAmount,
@@ -1017,61 +1443,13 @@ export default function Home() {
     }
   };
 
-  // Trigger status check worker
-  const triggerStatusCheck = async () => {
-    if (!token) {
-      alert("⚠️ Please enter your Supplier token first");
-      return;
-    }
-
-    setStatusCheckLoading(true);
-    setLastStatusCheckResult(null);
-
-    try {
-      console.log("[STATUS] Triggering status check...");
-      const res = await fetch("/api/sync/status-check", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ supplierToken: token }),
-      });
-
-      if (!res.ok) {
-        throw new Error(`Status check failed: ${res.status}`);
-      }
-
-      const data = await res.json();
-      setLastStatusCheckResult(data);
-      console.log("[STATUS] Result:", data);
-
-      alert(
-        `✅ Status Check Complete!\n\n` +
-        `${data.message}\n\n` +
-        `Checked: ${data.checkedCount || 0}\n` +
-        `Updated: ${data.updatedCount || 0}`
-      );
-
-      // Reload DB matches
-      await loadFromDB();
-    } catch (error: any) {
-      console.error("[STATUS] Error:", error);
-      alert(`❌ Status check failed:\n\n${error.message}`);
-    } finally {
-      setStatusCheckLoading(false);
-    }
-  };
-
   // Create manual cost-only entry (for liquidation / Essential Hoodie)
   const createManualCostEntry = async (shopifyItem: ShopifyLineItem) => {
     const isLiquidation = /%/.test(shopifyItem.title);
     
-    // Detect Essential Hoodies by name or SKU
-    const titleLower = shopifyItem.title.toLowerCase();
-    const isFearOfGodEssentials = titleLower.includes("fear of god essentials") || titleLower.includes("fog essentials");
-    const isHoodie = titleLower.includes("hoodie");
-    const matchesEssentialSKU = shopifyItem.sku && 
-      (["FWUG24K102NA", "FWUG24K101NA", "FWUG24K103NA"].includes(shopifyItem.sku) || 
-       /^192HO\d{6}F-/.test(shopifyItem.sku));
-    const isEssentialHoodie = (isFearOfGodEssentials && isHoodie) || matchesEssentialSKU;
+    // ✅ SIMPLE: If SKU is in EXCLUDED_SKUS → Essential Hoodie (auto 42 CHF)
+    // Otherwise → ignore (let normal StockX matching happen)
+    const isEssentialHoodie = shopifyItem.sku && EXCLUDED_SKUS.includes(shopifyItem.sku);
 
     let supplierCost: number;
 
@@ -1195,6 +1573,255 @@ export default function Home() {
     }
   };
 
+  // ✅ NEW: Open full manual entry modal with ALL DB fields (CREATE mode)
+  const openManualEntryModal = (shopifyItem: ShopifyLineItem) => {
+    // Pre-fill with intelligent defaults
+    const defaultData = {
+      // Shopify data (pre-filled)
+      shopifyOrderId: shopifyItem.shopifyOrderId,
+      shopifyOrderName: shopifyItem.orderName,
+      shopifyLineItemId: shopifyItem.lineItemId,
+      shopifyProductTitle: shopifyItem.title,
+      shopifySku: shopifyItem.sku || "",
+      shopifySizeEU: shopifyItem.sizeEU || "",
+      shopifyTotalPrice: parseFloat(shopifyItem.totalPrice),
+      shopifyCurrencyCode: shopifyItem.currencyCode || "CHF",
+      
+      // Supplier data (can be filled manually)
+      stockxOrderNumber: "",
+      stockxChainId: "",
+      stockxOrderId: "",
+      stockxProductName: shopifyItem.title, // Default to Shopify title
+      stockxSizeEU: shopifyItem.sizeEU || "",
+      stockxSkuKey: shopifyItem.sku || "",
+      stockxPurchaseDate: new Date().toISOString().slice(0, 16), // Current datetime
+      stockxStatus: "MANUAL",
+      stockxAwb: "",
+      stockxTrackingUrl: "",
+      stockxEstimatedDelivery: "",
+      
+      // Financial data
+      supplierCost: "",
+      marginAmount: "",
+      marginPercent: "",
+      
+      // Match metadata
+      matchConfidence: "manual",
+      matchScore: 100,
+      matchType: "MANUAL",
+      matchReasons: "Manual entry",
+      timeDiffHours: 0,
+      
+      // Optional fields
+      manualCostOverride: "",
+      manualNote: "",
+      shopifyMetafieldsSynced: false,
+    };
+    
+    setManualEntryData(defaultData);
+    setOriginalEntryData({});
+    setManualEntryModal({ isOpen: true, shopifyItem, mode: 'create' });
+  };
+
+  // ✅ NEW: Open modal for EDITING existing entry
+  const openManualEntryModalForEdit = (match: any) => {
+    // Pre-fill with existing data from DB
+    const existingData = {
+      // Shopify data
+      shopifyOrderId: match.shopifyOrderId,
+      shopifyOrderName: match.shopifyOrderName,
+      shopifyLineItemId: match.shopifyLineItemId,
+      shopifyProductTitle: match.shopifyProductTitle,
+      shopifySku: match.shopifySku || "",
+      shopifySizeEU: match.shopifySizeEU || "",
+      shopifyTotalPrice: toNumber(match.shopifyTotalPrice),
+      shopifyCurrencyCode: match.shopifyCurrencyCode || "CHF",
+      
+      // Supplier data
+      stockxOrderNumber: match.stockxOrderNumber || "",
+      stockxChainId: match.stockxChainId || "",
+      stockxOrderId: match.stockxOrderId || "",
+      stockxProductName: match.stockxProductName || "",
+      stockxSizeEU: match.stockxSizeEU || "",
+      stockxSkuKey: match.stockxSkuKey || "",
+      stockxPurchaseDate: match.stockxPurchaseDate 
+        ? new Date(match.stockxPurchaseDate).toISOString().slice(0, 16) 
+        : "",
+      stockxStatus: match.stockxStatus || "MANUAL",
+      stockxAwb: match.stockxAwb || "",
+      stockxTrackingUrl: match.stockxTrackingUrl || "",
+      stockxEstimatedDelivery: match.stockxEstimatedDelivery 
+        ? new Date(match.stockxEstimatedDelivery).toISOString().slice(0, 16)
+        : "",
+      
+      // Financial data
+      supplierCost: toNumber(match.supplierCost).toString(),
+      marginAmount: toNumber(match.marginAmount).toString(),
+      marginPercent: toNumber(match.marginPercent).toString(),
+      
+      // Match metadata
+      matchConfidence: match.matchConfidence || "manual",
+      matchScore: match.matchScore || 100,
+      matchType: match.matchType || "MANUAL",
+      matchReasons: match.matchReasons || "Manual entry",
+      timeDiffHours: toNumber(match.timeDiffHours) || 0,
+      
+      // Optional fields
+      manualCostOverride: match.manualCostOverride ? toNumber(match.manualCostOverride).toString() : "",
+      manualNote: match.manualNote || "",
+      shopifyMetafieldsSynced: match.shopifyMetafieldsSynced || false,
+    };
+    
+    setManualEntryData(existingData);
+    setOriginalEntryData(existingData); // Store original for comparison
+    setManualEntryModal({ 
+      isOpen: true, 
+      shopifyItem: null, // No shopify item in edit mode
+      mode: 'edit',
+      matchId: match.id 
+    });
+  };
+
+  // ✅ NEW: Save manual entry with ALL fields (CREATE or EDIT with partial update)
+  const saveManualEntry = async () => {
+    const isEditMode = manualEntryModal.mode === 'edit';
+    
+    // In create mode, shopifyItem must exist
+    if (!isEditMode && !manualEntryModal.shopifyItem) return;
+    
+    try {
+      // Calculate margin if supplier cost is provided
+      const supplierCost = parseFloat(manualEntryData.supplierCost) || 0;
+      const revenue = manualEntryData.shopifyTotalPrice || 0;
+      const marginAmount = revenue - supplierCost;
+      const marginPercent = revenue > 0 ? (marginAmount / revenue) * 100 : 0;
+      
+      let saveData: any;
+      
+      if (isEditMode) {
+        // ✅ EDIT MODE: Send ALL current data (ensures upsert works)
+        // Track changed fields for logging only
+        const changedFields: string[] = [];
+        
+        Object.keys(manualEntryData).forEach(key => {
+          const oldValue = originalEntryData[key];
+          const newValue = manualEntryData[key];
+          
+          const isChanged = (oldValue !== newValue) && 
+            !((!oldValue || oldValue === "") && (!newValue || newValue === ""));
+          
+          if (isChanged) {
+            changedFields.push(key);
+            console.log(`[EDIT] Changed field "${key}": "${oldValue}" → "${newValue}"`);
+          }
+        });
+        
+        // Build complete data object with all current values
+        saveData = {
+          // Shopify fields
+          shopifyOrderId: manualEntryData.shopifyOrderId,
+          shopifyOrderName: manualEntryData.shopifyOrderName,
+          shopifyLineItemId: manualEntryData.shopifyLineItemId,
+          shopifyProductTitle: manualEntryData.shopifyProductTitle,
+          shopifySku: manualEntryData.shopifySku || null,
+          shopifySizeEU: manualEntryData.shopifySizeEU || null,
+          shopifyTotalPrice: manualEntryData.shopifyTotalPrice,
+          shopifyCurrencyCode: manualEntryData.shopifyCurrencyCode || "CHF",
+          
+          // Supplier fields
+          stockxOrderNumber: manualEntryData.stockxOrderNumber || `MANUAL-${Date.now()}`,
+          stockxChainId: manualEntryData.stockxChainId || null,
+          stockxOrderId: manualEntryData.stockxOrderId || null,
+          stockxProductName: manualEntryData.stockxProductName || manualEntryData.shopifyProductTitle,
+          stockxSizeEU: manualEntryData.stockxSizeEU || null,
+          stockxSkuKey: manualEntryData.stockxSkuKey || null,
+          stockxPurchaseDate: manualEntryData.stockxPurchaseDate || null,
+          stockxStatus: manualEntryData.stockxStatus || "MANUAL",
+          stockxAwb: manualEntryData.stockxAwb || null,
+          stockxTrackingUrl: manualEntryData.stockxTrackingUrl || null,
+          stockxEstimatedDelivery: manualEntryData.stockxEstimatedDelivery || null,
+          
+          // Match metadata
+          matchConfidence: manualEntryData.matchConfidence || "manual",
+          matchScore: parseFloat(manualEntryData.matchScore?.toString() || "100"),
+          matchType: manualEntryData.matchType || "MANUAL",
+          matchReasons: Array.isArray(manualEntryData.matchReasons) 
+            ? manualEntryData.matchReasons 
+            : [manualEntryData.matchReasons || "Manual entry"],
+          timeDiffHours: parseFloat(manualEntryData.timeDiffHours?.toString() || "0"),
+          
+          // Financial fields (always recalculate)
+          supplierCost: supplierCost,
+          marginAmount: marginAmount,
+          marginPercent: marginPercent,
+          
+          // Optional fields
+          manualCostOverride: manualEntryData.manualCostOverride ? parseFloat(manualEntryData.manualCostOverride) : null,
+          manualNote: manualEntryData.manualNote || null,
+          shopifyMetafieldsSynced: manualEntryData.shopifyMetafieldsSynced || false,
+        };
+        
+        console.log(`[EDIT] Updating entry with ${changedFields.length} changed field(s):`, changedFields);
+        
+        // Store count for alert message (will be filtered out by API)
+        (saveData as any).__changedFieldsCount = changedFields.length;
+        
+      } else {
+        // ✅ CREATE MODE: Send all fields
+        saveData = {
+          ...manualEntryData,
+          supplierCost: supplierCost || 0,
+          marginAmount,
+          marginPercent,
+          // Convert empty strings to null
+          stockxOrderNumber: manualEntryData.stockxOrderNumber || `MANUAL-${Date.now()}`,
+          stockxChainId: manualEntryData.stockxChainId || null,
+          stockxOrderId: manualEntryData.stockxOrderId || null,
+          stockxPurchaseDate: manualEntryData.stockxPurchaseDate || null,
+          stockxEstimatedDelivery: manualEntryData.stockxEstimatedDelivery || null,
+          stockxAwb: manualEntryData.stockxAwb || null,
+          stockxTrackingUrl: manualEntryData.stockxTrackingUrl || null,
+          manualCostOverride: manualEntryData.manualCostOverride ? parseFloat(manualEntryData.manualCostOverride) : null,
+          matchReasons: Array.isArray(manualEntryData.matchReasons) 
+            ? manualEntryData.matchReasons 
+            : [manualEntryData.matchReasons || "Manual entry"],
+        };
+      }
+      
+      const res = await fetch("/api/db/save-match", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(saveData),
+      });
+      
+      const result = await res.json();
+      
+      if (!res.ok) {
+        alert(`❌ Failed to save:\n\n${result.error}\n\n${result.details || ""}`);
+        return;
+      }
+      
+      const modeText = isEditMode ? "updated" : "saved";
+      const changedCount = isEditMode ? (saveData as any).__changedFieldsCount || 0 : 0;
+      alert(
+        `✅ Manual entry ${modeText}!\n\n` +
+        `Order: ${manualEntryData.shopifyOrderName}\n` +
+        `Supplier Order: ${saveData.stockxOrderNumber || manualEntryData.stockxOrderNumber}\n` +
+        `Cost: CHF ${supplierCost.toFixed(2)}\n` +
+        `Margin: CHF ${marginAmount.toFixed(2)} (${marginPercent.toFixed(1)}%)\n\n` +
+        (isEditMode && changedCount > 0 ? `${changedCount} field(s) modified` : "")
+      );
+      
+      // Close modal and reload
+      setManualEntryModal({ isOpen: false, shopifyItem: null, mode: 'create' });
+      await loadFromDB();
+      
+    } catch (error: any) {
+      console.error("[MANUAL_ENTRY] Error:", error);
+      alert(`❌ Error saving:\n\n${error.message}`);
+    }
+  };
+
   // Apply manual override (for refunds/returns/manual costs)
   const applyManualOverride = async (matchId: string, match: any) => {
     const data = manualOverrideData[matchId];
@@ -1304,46 +1931,6 @@ export default function Home() {
     alert("✅ Manual overrides cleared");
   };
 
-  const [tokenRefreshing, setTokenRefreshing] = useState(false);
-
-  const refreshSupplierTokenViaCookies = async () => {
-    if (!confirm("🍪 Refresh token using saved cookies?\n\nThis will:\n- Use cookies from supplier-cookies.json\n- Bypass bot detection!\n- Capture fresh bearer token\n- Store in database\n\nTakes ~5 seconds. Continue?\n\n⚠️ Make sure you've exported cookies first! See STOCKX_TOKEN_REFRESH.md")) {
-      return;
-    }
-
-    setTokenRefreshing(true);
-    try {
-      const res = await fetch("/api/auth/refresh-supplier-token-cookies", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ cronSecret: prompt("Enter CRON_SECRET (from env vars):") || "test" }),
-      });
-
-      const data = await res.json();
-
-      if (!res.ok) {
-        if (data.error === "Missing cookies file") {
-          throw new Error(
-            "❌ Missing supplier-cookies.json!\n\n" +
-            "INSTRUCTIONS:\n" +
-            "1. Login to Supplier Pro in Chrome\n" +
-            "2. Press F12 → Console tab\n" +
-            "3. Run the script from: export-supplier-cookies.js\n" +
-            "4. Save to: supplier-cookies.json\n\n" +
-            "See STOCKX_TOKEN_REFRESH.md for full guide"
-          );
-        }
-        throw new Error(data.details || data.message || "Token refresh failed");
-      }
-
-      alert(`✅ Token Refreshed via Cookies!\n\nPreview: ${data.tokenPreview}\n\n✨ No bot detection! Fast & reliable!`);
-    } catch (error: any) {
-      alert(`❌ Cookie-based refresh failed:\n\n${error.message}`);
-    } finally {
-      setTokenRefreshing(false);
-    }
-  };
-
   const autoSetAllHighMatches = async () => {
     const highMatches = matchResults.filter((r) => r.bestMatch?.confidence === "high");
     
@@ -1367,13 +1954,25 @@ export default function Home() {
       // Use the supplierOrder from the match result (normalized)
       const supplierOrder = match.supplierOrder;
       
-      // Also find the raw order for pricing data
-      const rawStockxOrder = orders.find((o) => o.orderNumber === supplierOrder.supplierOrderNumber);
+      // ✅ Find the enriched order (has Query B supplierCost)
+      const rawStockxOrder = (enrichedOrders || orders).find((o) => o.orderNumber === supplierOrder.supplierOrderNumber);
 
       // Calculate financials
       const shopifyRevenue = parseFloat(shopifyItem.totalPrice) || 0;
+      
+      // ✅ Priority 1: Use supplierOrder.totalTTC (Query B cost from normalizedSupplier)
+      // ✅ Priority 2: Use rawStockxOrder.supplierCost (Query B cost from enriched order)
+      // ✅ Priority 3: Fallback to old pricingByOrder system
+      // ✅ Priority 4: Fallback to offer amount
+      const supplierCostFromMatch = supplierOrder.totalTTC;
+      const supplierCostFromEnriched = rawStockxOrder ? (rawStockxOrder as any).supplierCost : null;
       const pricingData = supplierOrder.supplierOrderNumber ? pricingByOrder[supplierOrder.supplierOrderNumber] : null;
-      const supplierCost = pricingData?.total || supplierOrder.offerAmount || rawStockxOrder?.amount || 0;
+      const supplierCostFromPricing = pricingData?.total || null;
+      
+      const supplierCost = supplierCostFromMatch ?? supplierCostFromEnriched ?? supplierCostFromPricing ?? supplierOrder.offerAmount ?? rawStockxOrder?.amount ?? 0;
+      
+      console.log(`[AUTO-SET] Supplier cost for ${supplierOrder.supplierOrderNumber}: ${supplierCost} CHF (fromMatch: ${supplierCostFromMatch}, fromEnriched: ${supplierCostFromEnriched}, fromPricing: ${supplierCostFromPricing})`);
+      
       const marginAmount = shopifyRevenue - supplierCost;
       const marginPercent = shopifyRevenue > 0 ? (marginAmount / shopifyRevenue) * 100 : 0;
 
@@ -1414,6 +2013,8 @@ export default function Home() {
             shopifySizeEU: shopifyItem.sizeEU || null,
             shopifyTotalPrice: shopifyRevenue,
             shopifyCurrencyCode: shopifyItem.currencyCode || "CHF",
+            stockxChainId: supplierOrder.chainId || null, // ✅ Pass chainId for Query B
+            stockxOrderId: supplierOrder.orderId || null, // ✅ Pass orderId for Query B
             stockxOrderNumber: supplierOrder.supplierOrderNumber || "",
             stockxProductName: supplierOrder.productName || supplierOrder.productTitle || "",
             stockxSizeEU: supplierOrder.sizeEU || null,
@@ -1424,6 +2025,8 @@ export default function Home() {
             matchReasons: match.reasons,
             timeDiffHours: match.timeDiffHours,
             stockxStatus: supplierOrder.statusKey || "",
+            stockxAwb: supplierOrder.awb || null, // ✅ Pass AWB from enriched data
+            stockxTrackingUrl: supplierOrder.trackingUrl || null, // ✅ Pass full tracking URL from enriched data
             stockxEstimatedDelivery: supplierOrder.estimatedDeliveryDate || null,
             supplierCost: supplierCost,
             marginAmount: marginAmount,
@@ -1502,26 +2105,16 @@ export default function Home() {
               <label htmlFor="bearerToken" className="block text-sm font-medium text-gray-700 mb-2">
                 Bearer Token
               </label>
-              <div className="flex gap-2">
-                <input
-                  id="bearerToken"
-                  name="bearerToken"
-                  type="password"
-                  value={token}
-                  onChange={(e) => setToken(e.target.value)}
-                  className="flex-1 px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                  placeholder="Enter your Supplier Pro API token (or use cookie refresh)"
-                  autoComplete="off"
-                />
-                <button
-                  onClick={refreshSupplierTokenViaCookies}
-                  disabled={tokenRefreshing}
-                  className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed whitespace-nowrap font-semibold"
-                  title="Refresh token using saved cookies (bypasses bot detection) - See STOCKX_TOKEN_REFRESH.md"
-                >
-                  {tokenRefreshing ? "⏳ Refreshing..." : "🍪 Via Cookies"}
-                </button>
-              </div>
+              <input
+                id="bearerToken"
+                name="bearerToken"
+                type="password"
+                value={token}
+                onChange={(e) => setToken(e.target.value)}
+                className="flex-1 px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                placeholder="Enter your Supplier Pro API token"
+                autoComplete="off"
+              />
             </div>
             <div className="flex items-center">
               <input
@@ -1613,10 +2206,10 @@ export default function Home() {
             </button>
             <button
               onClick={handleFetchAllPages}
-              disabled={loading || isFetchingAll}
+              disabled={loading || isFetchingAll || isEnriching}
               className="px-4 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700 disabled:bg-gray-400 disabled:cursor-not-allowed"
             >
-              {isFetchingAll ? "Fetching All..." : "Fetch All Pages"}
+              {isFetchingAll ? "📥 Fetching All Pages (A)..." : isEnriching ? `🔍 Enriching (B) ${detailsProgress.done}/${detailsProgress.total}...` : "🔍 Fetch All Pages + Details"}
             </button>
             <button
               onClick={fetchAllPricing}
@@ -1697,7 +2290,7 @@ export default function Home() {
         <div className="bg-white rounded-lg shadow overflow-hidden">
           <div className="px-6 py-4 border-b border-gray-200">
             <h2 className="text-xl font-semibold">
-              Results ({orders.length} orders)
+              Results ({(enrichedOrders || orders).length} orders{enrichedOrders ? " - Enriched (A+B)" : " - Basic (A)"})
             </h2>
           </div>
           <div className="overflow-x-auto">
@@ -1729,22 +2322,27 @@ export default function Home() {
                     ETA
                   </th>
                   <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Status
+                    Status {enrichedOrders && "(B)"}
                   </th>
+                  {enrichedOrders && (
+                    <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      AWB (B)
+                    </th>
+                  )}
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
-                {orders.length === 0 ? (
+                {(enrichedOrders || orders).length === 0 ? (
                   <tr>
                     <td
-                      colSpan={9}
+                      colSpan={enrichedOrders ? 10 : 9}
                       className="px-6 py-8 text-center text-gray-500"
                     >
-                      No orders loaded. Click "Fetch First Page" to start.
+                      No orders loaded. Click "🔍 Fetch All Pages + Details" to start.
                     </td>
                   </tr>
                 ) : (
-                  orders.map((order, idx) => (
+                  (enrichedOrders || orders).map((order, idx) => (
                     <tr key={`${order.orderId}-${idx}`} className="hover:bg-gray-50">
                       <td className="px-3 py-3 whitespace-nowrap text-sm font-medium text-gray-900">
                         {order.orderNumber ?? "—"}
@@ -1757,7 +2355,11 @@ export default function Home() {
                         {order.currencyCode ?? ""}
                       </td>
                       <td className="px-3 py-3 whitespace-nowrap text-sm text-gray-900">
-                        {order.orderNumber ? (
+                        {enrichedOrders && order.supplierCost != null ? (
+                          <span className="font-semibold text-green-700" title="From Query B (exact payment)">
+                            {Number(order.supplierCost).toFixed(2)} CHF
+                          </span>
+                        ) : order.orderNumber ? (
                           pricingByOrder[order.orderNumber]?.total != null ? (
                             <span className="font-semibold text-green-700">
                               {pricingByOrder[order.orderNumber]!.total.toFixed(2)}{" "}
@@ -1777,21 +2379,76 @@ export default function Home() {
                           "—"
                         )}
                       </td>
-                      <td className="px-4 py-3 text-sm text-gray-900" title={order.productTitle ?? order.productName ?? ""}>
-                        {order.displayName}
+                      <td className="px-4 py-3 text-sm text-gray-900">
+                        <div className="flex items-center gap-2">
+                          {enrichedOrders && order.thumbUrlB && (
+                            <img 
+                              src={order.thumbUrlB} 
+                              alt={order.productTitleB || ''} 
+                              className="w-8 h-8 object-cover rounded"
+                            />
+                          )}
+                          <span title={enrichedOrders && order.productTitleB ? order.productTitleB : (order.productTitle ?? order.productName ?? "")}>
+                            {enrichedOrders && order.productTitleB ? (
+                              <span className="font-medium">{order.productTitleB}</span>
+                            ) : (
+                              order.displayName
+                            )}
+                            {enrichedOrders && order.brandB && (
+                              <span className="text-xs text-gray-500 block">{order.brandB}</span>
+                            )}
+                          </span>
+                        </div>
                       </td>
                       <td className="px-2 py-3 whitespace-nowrap text-xs text-gray-600 font-mono w-32" title={`StyleID: ${order.styleId ?? "—"} / Model: ${order.model ?? "—"}`}>
                         {order.styleId || order.model || "—"}
                       </td>
                       <td className="px-3 py-3 whitespace-nowrap text-sm text-gray-500">
-                        {order.size ?? "—"}
-                      </td>
-                      <td className="px-3 py-3 whitespace-nowrap text-sm text-gray-500" title={order.estimatedDeliveryDate ?? ""}>
-                        {order.estimatedDeliveryFormatted ?? "—"}
+                        {enrichedOrders && order.sizeB ? (
+                          <span className="font-medium text-gray-900">{order.sizeB}</span>
+                        ) : (
+                          order.size ?? "—"
+                        )}
                       </td>
                       <td className="px-3 py-3 whitespace-nowrap text-sm text-gray-500">
-                        {order.statusKey ?? "—"}
+                        {enrichedOrders && order.estimatedDeliveryB ? (
+                          <span className="text-blue-600 font-medium" title={`Latest: ${order.latestEstimatedDeliveryB || 'N/A'}`}>
+                            {new Date(order.estimatedDeliveryB).toLocaleDateString('fr-CH', { day: '2-digit', month: '2-digit', year: 'numeric' })}
+                          </span>
+                        ) : (
+                          order.estimatedDeliveryFormatted ?? "—"
+                        )}
                       </td>
+                      <td className="px-3 py-3 whitespace-nowrap text-sm">
+                        {enrichedOrders && order.statusKeyB ? (
+                          <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+                            {order.statusKeyB}
+                          </span>
+                        ) : (
+                          <span className="text-gray-500">{order.statusKey ?? "—"}</span>
+                        )}
+                      </td>
+                      {enrichedOrders && (
+                        <td className="px-3 py-3 text-sm">
+                          {order.awb && order.trackingUrl ? (
+                            <a 
+                              href={order.trackingUrl} 
+                              target="_blank" 
+                              rel="noopener noreferrer"
+                              className="text-xs font-mono text-blue-600 hover:text-blue-800 hover:underline"
+                              title="Click to track package"
+                            >
+                              📦 {order.awb}
+                            </a>
+                          ) : order.awb ? (
+                            <span className="text-xs font-mono text-gray-700" title="Tracking number (no URL)">
+                              📦 {order.awb}
+                            </span>
+                          ) : (
+                            <span className="text-gray-400 text-xs">⏳ Not shipped</span>
+                          )}
+                        </td>
+                      )}
                     </tr>
                   ))
                 )}
@@ -1882,7 +2539,7 @@ export default function Home() {
                 🤖 Database & Auto-Sync
               </h2>
               <p className="text-sm text-gray-600 mt-1">
-                Persistent storage + background workers for automatic matching & status monitoring
+                Persistent storage + background workers for automatic matching
               </p>
             </div>
           </div>
@@ -1905,14 +2562,7 @@ export default function Home() {
               {syncLoading ? "Syncing..." : "🔄 Sync New Orders"}
             </button>
 
-            <button
-              onClick={triggerStatusCheck}
-              disabled={statusCheckLoading || !token}
-              className="flex items-center justify-center gap-2 px-4 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed font-medium shadow"
-            >
-              {statusCheckLoading ? "Checking..." : "✅ Check Status"}
-            </button>
-
+        
             <a
               href="/dashboard"
               target="_blank"
@@ -1924,31 +2574,17 @@ export default function Home() {
           </div>
 
           {/* Last Sync Results */}
-          {(lastSyncResult || lastStatusCheckResult) && (
+          {lastSyncResult && (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-              {lastSyncResult && (
-                <div className="bg-green-50 border border-green-200 rounded-lg p-4">
-                  <h3 className="font-semibold text-green-800 mb-2">Last Sync Result</h3>
-                  <p className="text-sm text-gray-700">
-                    New Matches: <span className="font-bold">{lastSyncResult.newMatches || 0}</span>
-                  </p>
-                  <p className="text-sm text-gray-700">
-                    Auto-Set: <span className="font-bold">{lastSyncResult.autoSetCount || 0}</span>
-                  </p>
-                </div>
-              )}
-
-              {lastStatusCheckResult && (
-                <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-                  <h3 className="font-semibold text-blue-800 mb-2">Last Status Check</h3>
-                  <p className="text-sm text-gray-700">
-                    Checked: <span className="font-bold">{lastStatusCheckResult.checkedCount || 0}</span>
-                  </p>
-                  <p className="text-sm text-gray-700">
-                    Updated: <span className="font-bold">{lastStatusCheckResult.updatedCount || 0}</span>
-                  </p>
-                </div>
-              )}
+              <div className="bg-green-50 border border-green-200 rounded-lg p-4">
+                <h3 className="font-semibold text-green-800 mb-2">Last Sync Result</h3>
+                <p className="text-sm text-gray-700">
+                  New Matches: <span className="font-bold">{lastSyncResult.newMatches || 0}</span>
+                </p>
+                <p className="text-sm text-gray-700">
+                  Auto-Set: <span className="font-bold">{lastSyncResult.autoSetCount || 0}</span>
+                </p>
+              </div>
             </div>
           )}
 
@@ -2025,6 +2661,13 @@ export default function Home() {
                               )}
                             </td>
                             <td className="px-3 py-2 space-x-1">
+                              <button
+                                onClick={() => openManualEntryModalForEdit(match)}
+                                className="text-blue-600 hover:text-blue-800 font-semibold text-xs px-2 py-1 rounded hover:bg-blue-50"
+                                title="Edit all fields"
+                              >
+                                ✏️ Edit
+                              </button>
                               <button
                                 onClick={() => setManualOverrideExpanded(prev => ({ ...prev, [match.id]: !isExpanded }))}
                                 className="text-orange-600 hover:text-orange-800 font-semibold text-xs px-2 py-1 rounded hover:bg-orange-50"
@@ -2171,7 +2814,7 @@ export default function Home() {
               <li>• <strong>Sync New Orders</strong>: 🤖 Fetches recent Shopify orders, auto-matches with Supplier, <span className="font-bold text-green-700">automatically sets metafields + saves to DB for HIGH confidence matches</span>. No manual approval needed!</li>
               <li>• <strong>Check Status Updates</strong>: 🔄 Monitors all synced orders for Supplier status changes and updates Shopify metafields automatically.</li>
               <li>• <strong>Database</strong>: 💾 All HIGH confidence matches stored locally. MEDIUM/LOW skipped (require manual review).</li>
-              <li>• <strong>Cron Jobs</strong>: ⏰ Call <code className="bg-white px-1 rounded">/api/sync/new-orders</code> every 5-10 min and <code className="bg-white px-1 rounded">/api/sync/status-check</code> every 30-60 min for full automation.</li>
+              <li>• <strong>Cron Jobs</strong>: ⏰ Call <code className="bg-white px-1 rounded">/api/sync/new-orders</code> every 5-10 min for full automation.</li>
             </ul>
           </div>
         </div>
@@ -2228,14 +2871,9 @@ export default function Home() {
                 const match = result.bestMatch;
                 const isLiquidation = /%/.test(shopify.title);
                 
-                // Detect Essential Hoodies by name or SKU
-                const titleLower = shopify.title.toLowerCase();
-                const isFearOfGodEssentials = titleLower.includes("fear of god essentials") || titleLower.includes("fog essentials");
-                const isHoodie = titleLower.includes("hoodie");
-                const matchesEssentialSKU = shopify.sku && 
-                  (["FWUG24K102NA", "FWUG24K101NA", "FWUG24K103NA"].includes(shopify.sku) || 
-                   /^192HO\d{6}F-/.test(shopify.sku));
-                const isEssentialHoodie = (isFearOfGodEssentials && isHoodie) || matchesEssentialSKU;
+                // ✅ SIMPLE: If SKU is in EXCLUDED_SKUS → Essential Hoodie (auto 42 CHF)
+                // Otherwise → ignore (let normal StockX matching happen)
+                const isEssentialHoodie = shopify.sku && EXCLUDED_SKUS.includes(shopify.sku);
 
                 return (
                   <div
@@ -2381,8 +3019,16 @@ export default function Home() {
                                     <div className="mt-3 pt-2 border-t border-orange-200">
                                       {(() => {
                                         const shopifyRevenue = parseFloat(shopify.totalPrice) || 0;
+                                        
+                                        // ✅ Find the enriched order to get Query B supplierCost
+                                        const enrichedOrder = enrichedOrders?.find(o => o.orderNumber === manualSupplierOrderNum);
+                                        const supplierCostFromB = enrichedOrder ? (enrichedOrder as any).supplierCost : null;
+                                        
+                                        // ✅ Fallback to old pricing system
                                         const pricingData = pricingByOrder[manualSupplierOrderNum];
-                                        const autoTTC = pricingData?.total || null;
+                                        const supplierCostFromPricing = pricingData?.total || null;
+                                        const autoTTC = supplierCostFromB ?? supplierCostFromPricing;
+                                        
                                         const manualCost = manualCostOverrides[shopify.lineItemId];
                                         const displayCost = manualCost ? parseFloat(manualCost) : (autoTTC || manualSupplierOrder.amount || 0);
                                         const marginAmount = shopifyRevenue - displayCost;
@@ -2605,8 +3251,14 @@ export default function Home() {
                               {(() => {
                                 const shopifyRevenue = parseFloat(shopify.totalPrice) || 0;
                                 const supplierOrderNum = confirmedMatches[shopify.lineItemId] || match.supplierOrder.supplierOrderNumber;
+                                
+                                // ✅ Priority 1: Use match.supplierOrder.totalTTC (Query B supplier cost)
+                                // ✅ Priority 2: Fallback to old pricingByOrder system
+                                const supplierCostFromMatch = match.supplierOrder.totalTTC;
                                 const pricingData = pricingByOrder[supplierOrderNum];
-                                const autoTTC = pricingData?.total || null;
+                                const supplierCostFromPricing = pricingData?.total || null;
+                                const autoTTC = supplierCostFromMatch ?? supplierCostFromPricing;
+                                
                                 const manualCost = manualCostOverrides[shopify.lineItemId];
                                 const displayCost = manualCost ? parseFloat(manualCost) : (autoTTC || match.supplierOrder.offerAmount || 0);
                                 const marginAmount = shopifyRevenue - displayCost;
@@ -2695,6 +3347,12 @@ export default function Home() {
                           <div className="text-gray-500 text-center py-4">
                             <p className="text-sm">No match found</p>
                             <p className="text-xs mt-1">Manual selection required</p>
+                            <button
+                              onClick={() => openManualEntryModal(shopify)}
+                              className="mt-3 px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded hover:bg-blue-700"
+                            >
+                              📝 Create Manual Entry (Full)
+                            </button>
                           </div>
                         )}
                       </div>
@@ -2706,6 +3364,267 @@ export default function Home() {
           )}
         </div>
       </div>
+
+      {/* ✅ NEW: Manual Entry Modal with ALL DB fields */}
+      {manualEntryModal.isOpen && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4 overflow-y-auto">
+          <div className="bg-white rounded-lg shadow-xl max-w-4xl w-full max-h-[90vh] overflow-y-auto">
+            <div className="sticky top-0 bg-white border-b px-6 py-4 flex justify-between items-center">
+              <h2 className="text-xl font-bold">
+                {manualEntryModal.mode === 'edit' ? '✏️ Edit Entry - All Fields' : '📝 Create Manual Entry - All Fields'}
+              </h2>
+              <button
+                onClick={() => setManualEntryModal({ isOpen: false, shopifyItem: null, mode: 'create' })}
+                className="text-gray-500 hover:text-gray-700 text-2xl"
+              >
+                ×
+              </button>
+            </div>
+            
+            <div className="p-6 space-y-6">
+              {/* Shopify Info (Read-only) */}
+              <div className="bg-blue-50 p-4 rounded-lg">
+                <h3 className="font-semibold text-blue-900 mb-2">📦 Shopify Order (Read-only)</h3>
+                <div className="grid grid-cols-2 gap-2 text-sm">
+                  <div><span className="font-medium">Order:</span> {manualEntryData.shopifyOrderName || manualEntryModal.shopifyItem?.orderName}</div>
+                  <div><span className="font-medium">Revenue:</span> CHF {manualEntryData.shopifyTotalPrice?.toFixed(2)}</div>
+                  <div className="col-span-2"><span className="font-medium">Product:</span> {manualEntryData.shopifyProductTitle || manualEntryModal.shopifyItem?.title}</div>
+                  <div><span className="font-medium">SKU:</span> {manualEntryData.shopifySku || "N/A"}</div>
+                  <div><span className="font-medium">Size:</span> {manualEntryData.shopifySizeEU || "N/A"}</div>
+                </div>
+                {manualEntryModal.mode === 'edit' && (
+                  <div className="mt-2 text-xs text-blue-700">
+                    💡 Tip: Only modified fields will be updated in the database
+                  </div>
+                )}
+              </div>
+
+              {/* Supplier Order Info */}
+              <div className="space-y-3">
+                <h3 className="font-semibold text-gray-900">🏪 Supplier Order Info</h3>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Supplier Order Number
+                    </label>
+                    <input
+                      type="text"
+                      value={manualEntryData.stockxOrderNumber}
+                      onChange={(e) => setManualEntryData({...manualEntryData, stockxOrderNumber: e.target.value})}
+                      placeholder="e.g., 03-XXXXXXXXXX"
+                      className="w-full px-3 py-2 border rounded focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Chain ID
+                    </label>
+                    <input
+                      type="text"
+                      value={manualEntryData.stockxChainId}
+                      onChange={(e) => setManualEntryData({...manualEntryData, stockxChainId: e.target.value})}
+                      placeholder="Optional"
+                      className="w-full px-3 py-2 border rounded focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Order ID
+                    </label>
+                    <input
+                      type="text"
+                      value={manualEntryData.stockxOrderId}
+                      onChange={(e) => setManualEntryData({...manualEntryData, stockxOrderId: e.target.value})}
+                      placeholder="Optional"
+                      className="w-full px-3 py-2 border rounded focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Status
+                    </label>
+                    <select
+                      value={manualEntryData.stockxStatus}
+                      onChange={(e) => setManualEntryData({...manualEntryData, stockxStatus: e.target.value})}
+                      className="w-full px-3 py-2 border rounded focus:ring-2 focus:ring-blue-500"
+                    >
+                      <option value="MANUAL">MANUAL</option>
+                      <option value="ORDER_CREATED">ORDER_CREATED</option>
+                      <option value="SELLER_SHIPPED">SELLER_SHIPPED</option>
+                      <option value="DELIVERED">DELIVERED</option>
+                      <option value="CANCELLED">CANCELLED</option>
+                    </select>
+                  </div>
+                </div>
+                
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Product Name
+                  </label>
+                  <input
+                    type="text"
+                    value={manualEntryData.stockxProductName}
+                    onChange={(e) => setManualEntryData({...manualEntryData, stockxProductName: e.target.value})}
+                    className="w-full px-3 py-2 border rounded focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+                
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      SKU Key
+                    </label>
+                    <input
+                      type="text"
+                      value={manualEntryData.stockxSkuKey}
+                      onChange={(e) => setManualEntryData({...manualEntryData, stockxSkuKey: e.target.value})}
+                      className="w-full px-3 py-2 border rounded focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Size (EU)
+                    </label>
+                    <input
+                      type="text"
+                      value={manualEntryData.stockxSizeEU}
+                      onChange={(e) => setManualEntryData({...manualEntryData, stockxSizeEU: e.target.value})}
+                      className="w-full px-3 py-2 border rounded focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Dates & Tracking */}
+              <div className="space-y-3">
+                <h3 className="font-semibold text-gray-900">📅 Dates & Tracking</h3>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Purchase Date
+                    </label>
+                    <input
+                      type="datetime-local"
+                      value={manualEntryData.stockxPurchaseDate}
+                      onChange={(e) => setManualEntryData({...manualEntryData, stockxPurchaseDate: e.target.value})}
+                      className="w-full px-3 py-2 border rounded focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Estimated Delivery
+                    </label>
+                    <input
+                      type="datetime-local"
+                      value={manualEntryData.stockxEstimatedDelivery}
+                      onChange={(e) => setManualEntryData({...manualEntryData, stockxEstimatedDelivery: e.target.value})}
+                      className="w-full px-3 py-2 border rounded focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+                </div>
+                
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    AWB / Tracking Number
+                  </label>
+                  <input
+                    type="text"
+                    value={manualEntryData.stockxAwb}
+                    onChange={(e) => setManualEntryData({...manualEntryData, stockxAwb: e.target.value})}
+                    placeholder="e.g., 123456789"
+                    className="w-full px-3 py-2 border rounded focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+                
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Tracking URL
+                  </label>
+                  <input
+                    type="url"
+                    value={manualEntryData.stockxTrackingUrl}
+                    onChange={(e) => setManualEntryData({...manualEntryData, stockxTrackingUrl: e.target.value})}
+                    placeholder="https://tracking.example.com/..."
+                    className="w-full px-3 py-2 border rounded focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+              </div>
+
+              {/* Financial Data */}
+              <div className="space-y-3">
+                <h3 className="font-semibold text-gray-900">💰 Financial Data</h3>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Supplier Cost (CHF) *
+                    </label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      value={manualEntryData.supplierCost}
+                      onChange={(e) => setManualEntryData({...manualEntryData, supplierCost: e.target.value})}
+                      placeholder="0.00"
+                      className="w-full px-3 py-2 border rounded focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Manual Cost Override
+                    </label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      value={manualEntryData.manualCostOverride}
+                      onChange={(e) => setManualEntryData({...manualEntryData, manualCostOverride: e.target.value})}
+                      placeholder="Optional"
+                      className="w-full px-3 py-2 border rounded focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+                </div>
+                
+                {/* Calculated Margin */}
+                {manualEntryData.supplierCost && (
+                  <div className="bg-green-50 p-3 rounded text-sm">
+                    <span className="font-medium">Calculated Margin:</span> CHF {(manualEntryData.shopifyTotalPrice - parseFloat(manualEntryData.supplierCost)).toFixed(2)} 
+                    ({(((manualEntryData.shopifyTotalPrice - parseFloat(manualEntryData.supplierCost)) / manualEntryData.shopifyTotalPrice) * 100).toFixed(1)}%)
+                  </div>
+                )}
+              </div>
+
+              {/* Notes */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Notes (Optional)
+                </label>
+                <textarea
+                  value={manualEntryData.manualNote}
+                  onChange={(e) => setManualEntryData({...manualEntryData, manualNote: e.target.value})}
+                  rows={3}
+                  placeholder="Any additional notes..."
+                  className="w-full px-3 py-2 border rounded focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+
+              {/* Action Buttons */}
+              <div className="flex gap-3 pt-4 border-t">
+                <button
+                  onClick={saveManualEntry}
+                  className="flex-1 px-6 py-3 bg-green-600 text-white font-medium rounded hover:bg-green-700"
+                >
+                  {manualEntryModal.mode === 'edit' ? '💾 Update Entry (Partial)' : '✅ Save Manual Entry'}
+                </button>
+                <button
+                  onClick={() => setManualEntryModal({ isOpen: false, shopifyItem: null, mode: 'create' })}
+                  className="px-6 py-3 bg-gray-300 text-gray-700 font-medium rounded hover:bg-gray-400"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }

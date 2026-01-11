@@ -53,10 +53,13 @@ async function main() {
     { name: 'Amex', provider: 'American Express', currency: 'CHF' },
     { name: 'UBS Credit Card', provider: 'UBS', currency: 'CHF' },
     { name: 'Cornercard', provider: 'Cornercard', currency: 'CHF' },
+    { name: 'Mastercard World Platinium', provider: 'Mastercard', currency: 'CHF' },
+    { name: 'TWINT', provider: 'TWINT', currency: 'CHF' },
     { name: 'Cash', provider: 'Cash', currency: 'CHF' },
     { name: 'UBS Bank Account', provider: 'UBS', currency: 'CHF' },
-    { name: 'Revolut', provider: 'Revolut', currency: 'EUR' },
-    { name: 'Wise', provider: 'Wise', currency: 'USD' },
+    { name: 'Revolut', provider: 'Revolut', currency: 'CHF' },
+    { name: 'Wise', provider: 'Wise', currency: 'CHF' },
+    { name: 'Other', provider: 'Other', currency: 'CHF' },
   ]
 
   console.log('\n💳 Creating payment accounts...')

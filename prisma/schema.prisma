@@ -21,6 +21,33 @@ model StockXToken {
   @@schema("public")
 }
 
+// Source of truth for ALL Shopify orders (booked sales)
+// Populated independently from matching
+model ShopifyOrder {
+  shopifyOrderId      String    @id
+  orderName           String
+  createdAt           DateTime  // Shopify sell date
+  totalSalesChf       Decimal   @db.Decimal(10, 2)  // Gross sales
+  currencyCode        String    @default("CHF")
+  financialStatus     String?
+  cancelledAt         DateTime?
+  refundedAmountChf   Decimal?  @db.Decimal(10, 2)
+  netSalesChf         Decimal?  @db.Decimal(10, 2)  // totalSales - refunded
+  updatedAt           DateTime  @updatedAt
+  syncedAt            DateTime  @default(now())
+
+  @@index([createdAt])
+  @@schema("public")
+}
+
+enum SupplierSource {
+  STOCKX
+  MANUAL
+  OTHER
+
+  @@schema("public")
+}
+
 model OrderMatch {
   id                      String   @id @default(uuid())
   
@@ -34,11 +61,15 @@ model OrderMatch {
   shopifyTotalPrice       Decimal  @db.Decimal(10, 2)
   shopifyCurrencyCode     String   @default("CHF")
   
-  // StockX identifiers
-  stockxOrderNumber       String
+  // Supplier identifiers (supports StockX, manual, other)
+  supplierSource          SupplierSource @default(STOCKX)
+  stockxOrderNumber       String         // Can be used for manual ref too
+  stockxChainId           String?        // StockX long chainId (e.g. "14826275139352606543")
+  stockxOrderId           String?        // StockX orderId (often = orderNumber)
   stockxProductName       String
   stockxSizeEU            String?
   stockxSkuKey            String?
+  stockxPurchaseDate      DateTime?      // Also: supplierPurchaseDate
   
   // Match metadata
   matchConfidence         String
@@ -47,12 +78,11 @@ model OrderMatch {
   matchReasons            String
   timeDiffHours           Decimal? @db.Decimal(10, 2)
   
-  // StockX status (for monitoring)
-  stockxStatus            String
-  stockxEstimatedDelivery String?
-  lastStatusCheck         DateTime @default(now())
-  stockxLastSeenAt        DateTime?
-  stockxMissingCount      Int      @default(0)
+  // StockX status & tracking
+  stockxStatus              String
+  stockxTrackingUrl         String?        // Tracking URL from shipping.shipment
+  stockxAwb                 String?        // Air Waybill / tracking number (extracted from trackingUrl)
+  stockxEstimatedDelivery   DateTime?      // Estimated delivery date
   
   // Shopify metafields sync status
   shopifyMetafieldsSynced Boolean  @default(false)
@@ -76,8 +106,7 @@ model OrderMatch {
   @@index([shopifyOrderId])
   @@index([stockxOrderNumber])
   @@index([shopifyMetafieldsSynced])
-  @@index([lastStatusCheck])
-  @@index([stockxLastSeenAt])
+  @@index([stockxPurchaseDate])
   @@schema("public")
 }
 
@@ -145,5 +174,30 @@ model PersonalExpense {
   @@index([categoryId])
   @@index([accountId])
   @@index([isBusiness])
+  @@schema("public")
+}
+
+model DailyAdSpend {
+  date      DateTime @id
+  amountChf Decimal  @db.Decimal(10, 2)
+  channel   String   @default("google")
+  notes     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  @@schema("public")
+}
+
+model MonthlyVariableCosts {
+  monthKey              String   @id
+  year                  Int
+  month                 Int
+  postageShippingCostChf Decimal @db.Decimal(10, 2)
+  fulfillmentCostChf    Decimal  @db.Decimal(10, 2)
+  notes                 String?
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+  
+  @@unique([year, month])
   @@schema("public")
 }

@@ -37,9 +37,9 @@ export async function GET(req: Request) {
     });
 
     // Get Shopify data with metafields
-    const shopifyAccessToken = process.env.SHOPIFY_ADMIN_ACCESS_TOKEN;
-    const shopifyShopDomain = process.env.SHOPIFY_SHOP_DOMAIN;
-    const shopifyApiVersion = process.env.SHOPIFY_API_VERSION || "2024-10";
+    const shopifyAccessToken = process.env.ACCESS_TOKEN_SHOPIFY;
+    const shopifyShopDomain = process.env.SHOP_NAME_SHOPIFY;
+    const shopifyApiVersion = process.env.API_VERSION_SHOPIFY || "2024-10";
 
     if (!shopifyAccessToken || !shopifyShopDomain) {
       return NextResponse.json(
