@@ -1,11 +1,32 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { getJson, postJson } from "@/app/lib/api";
+
+type ExpenseCategory = {
+  id: string;
+  name: string;
+  type: "BUSINESS" | "PERSONAL" | string;
+};
+
+type ExpenseAccount = {
+  id: string;
+  name: string;
+  currency: string;
+};
+
+type Expense = {
+  id: string;
+  amount: number;
+  isBusiness: boolean;
+  date: string;
+  note?: string | null;
+};
 
 export default function ExpensesPage() {
-  const [categories, setCategories] = useState<any[]>([]);
-  const [accounts, setAccounts] = useState<any[]>([]);
-  const [expenses, setExpenses] = useState<any[]>([]);
+  const [categories, setCategories] = useState<ExpenseCategory[]>([]);
+  const [accounts, setAccounts] = useState<ExpenseAccount[]>([]);
+  const [expenses, setExpenses] = useState<Expense[]>([]);
   const [loading, setLoading] = useState(false);
   
   // Form state
@@ -22,24 +43,22 @@ export default function ExpensesPage() {
 
   async function loadData() {
     try {
-      const [catRes, accRes, expRes] = await Promise.all([
-        fetch('/api/expenses/categories'),
-        fetch('/api/expenses/accounts'),
-        fetch('/api/expenses?from=2024-01-01')
-      ]);
-      
       const [catData, accData, expData] = await Promise.all([
-        catRes.json(),
-        accRes.json(),
-        expRes.json()
+        getJson<{ categories: ExpenseCategory[] }>("/api/expenses/categories"),
+        getJson<{ accounts: ExpenseAccount[] }>("/api/expenses/accounts"),
+        getJson<{ expenses: Expense[] }>("/api/expenses?from=2024-01-01"),
       ]);
       
-      setCategories(catData.categories || []);
-      setAccounts(accData.accounts || []);
-      setExpenses(expData.expenses || []);
+      const cats = catData.data?.categories || [];
+      const accs = accData.data?.accounts || [];
+      const exps = expData.data?.expenses || [];
       
-      if (catData.categories?.length > 0) setCategoryId(catData.categories[0].id);
-      if (accData.accounts?.length > 0) setAccountId(accData.accounts[0].id);
+      setCategories(cats);
+      setAccounts(accs);
+      setExpenses(exps);
+
+      if (cats.length > 0) setCategoryId(cats[0].id);
+      if (accs.length > 0) setAccountId(accs[0].id);
     } catch (error) {
       console.error('Error loading data:', error);
     }
@@ -50,28 +69,23 @@ export default function ExpensesPage() {
     setLoading(true);
     
     try {
-      const res = await fetch('/api/expenses', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
+      const res = await postJson<any>("/api/expenses", {
           date,
           amount: parseFloat(amount),
           categoryId,
           accountId,
           note: note || null,
           isBusiness,
-          currencyCode: 'CHF'
-        })
+        currencyCode: "CHF",
       });
       
       if (res.ok) {
-        alert('✅ Expense added!');
+        alert("✅ Expense added!");
         setAmount("");
         setNote("");
         loadData();
       } else {
-        const error = await res.json();
-        alert('Error: ' + (error.error || 'Failed to add expense'));
+        alert("Error: " + (res.data?.error || "Failed to add expense"));
       }
     } catch (error) {
       console.error('Error adding expense:', error);
@@ -133,66 +147,6 @@ export default function ExpensesPage() {
           <div className="bg-green-50 p-6 rounded-lg shadow">
             <div className="text-sm font-medium text-green-700">Personal</div>
             <div className="text-2xl font-bold text-green-900">CHF {personalTotal.toFixed(2)}</div>
-          </div>
-        </div>
-
-        {/* Quick Google Ads Entry */}
-        <div className="bg-gradient-to-r from-red-50 to-orange-50 border-2 border-red-200 p-6 rounded-lg shadow mb-8">
-          <h3 className="text-lg font-bold text-red-900 mb-3">📢 Quick Google Ads Entry</h3>
-          <div className="flex gap-3 items-end">
-            <div className="flex-1">
-              <label className="block text-sm font-medium text-gray-700 mb-1">Amount (CHF)</label>
-              <input
-                type="number"
-                step="0.01"
-                placeholder="0.00"
-                id="adsAmount"
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-red-500 focus:border-red-500"
-              />
-            </div>
-            <button
-              onClick={async () => {
-                const input = document.getElementById('adsAmount') as HTMLInputElement;
-                const amt = parseFloat(input.value);
-                if (!amt || amt <= 0) {
-                  alert('Please enter a valid amount');
-                  return;
-                }
-                
-                const adsCat = categories.find(c => c.name === 'Marketing & Ads');
-                const defaultAcc = accounts[0];
-                
-                if (!adsCat) {
-                  alert('Marketing & Ads category not found');
-                  return;
-                }
-                
-                const res = await fetch('/api/expenses', {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({
-                    date: new Date().toISOString().split('T')[0],
-                    amount: amt,
-                    categoryId: adsCat.id,
-                    accountId: defaultAcc.id,
-                    note: 'Google Ads',
-                    isBusiness: true,
-                    currencyCode: 'CHF'
-                  })
-                });
-                
-                if (res.ok) {
-                  alert('✅ Google Ads expense added!');
-                  input.value = '';
-                  loadData();
-                } else {
-                  alert('Error adding expense');
-                }
-              }}
-              className="px-6 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 font-medium"
-            >
-              💸 Add Google Ads
-            </button>
           </div>
         </div>
 

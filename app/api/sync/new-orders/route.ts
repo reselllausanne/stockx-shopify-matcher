@@ -2,6 +2,15 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/app/lib/prisma";
 import { matchShopifyToSupplier, NormalizedSupplierOrder, EXCLUDED_SKUS } from "@/app/utils/matching";
 
+const toNumber = (value: any): number => {
+  if (typeof value === "number") return value;
+  if (typeof value === "string") return parseFloat(value) || 0;
+  if (value && typeof value === "object" && typeof (value as any).toNumber === "function") {
+    return (value as any).toNumber();
+  }
+  return 0;
+};
+
 /**
  * POST /api/sync/new-orders
  * 
@@ -301,7 +310,6 @@ export async function POST(req: Request) {
               marginPercent,
               manualCostOverride: supplierCost,
               shopifyMetafieldsSynced: false,
-              lastStatusCheck: new Date(),
               supplierSource: "MANUAL",
             },
           });
@@ -322,7 +330,7 @@ export async function POST(req: Request) {
         console.log(`[SYNC] 📋 Already matched in DB: ${shopifyItem.orderName} → ${existingInDb.stockxOrderNumber}`);
         
         const newShopifyPrice = parseFloat(shopifyItem.totalPrice) || 0;
-        const oldShopifyPrice = existingInDb.shopifyTotalPrice;
+        const oldShopifyPrice = toNumber(existingInDb.shopifyTotalPrice);
         const priceChanged = Math.abs(newShopifyPrice - oldShopifyPrice) > 0.01;
 
         if (priceChanged) {
@@ -334,7 +342,7 @@ export async function POST(req: Request) {
           }
           
           // Recalculate margin with new price
-          const supplierCost = existingInDb.supplierCost || 0;
+          const supplierCost = toNumber(existingInDb.supplierCost) || 0;
           const newMarginAmount = newShopifyPrice - supplierCost;
           const newMarginPercent = newShopifyPrice > 0 ? (newMarginAmount / newShopifyPrice) * 100 : 0;
 
@@ -437,9 +445,9 @@ export async function POST(req: Request) {
               headers: { "content-type": "application/json" },
               body: JSON.stringify({
                 shopifyOrderId: shopifyItem.shopifyOrderId,
-                stockxOrderNumber: stockxOrders.stockxOrderNumber,
-                estimatedDelivery: stockxOrders.estimatedDeliveryDate || null,
-                stockxStatus: stockxOrders.statusKey || "UNKNOWN",
+                stockxOrderNumber: supplierOrder.supplierOrderNumber,
+                estimatedDelivery: supplierOrder.estimatedDeliveryDate || null,
+                stockxStatus: supplierOrder.statusKey || "UNKNOWN",
                 supplierCost: supplierCost.toFixed(2),
                 marginAmount: marginAmount.toFixed(2),
                 marginPercent: marginPercent.toFixed(2),
@@ -455,7 +463,6 @@ export async function POST(req: Request) {
                   shopifyMetafieldsSetAt: new Date(),
                   stockxStatus: supplierOrder.statusKey || "",
                   stockxEstimatedDelivery: supplierOrder.estimatedDeliveryDate || null,
-                  lastStatusCheck: new Date(),
                   updatedAt: new Date(),
                 },
               });
@@ -505,7 +512,6 @@ export async function POST(req: Request) {
             data: {
               stockxStatus: supplierOrder.statusKey || "",
               stockxEstimatedDelivery: supplierOrder.estimatedDeliveryDate || null,
-              lastStatusCheck: new Date(),
               updatedAt: new Date(),
             },
           });
@@ -539,11 +545,6 @@ export async function POST(req: Request) {
           });
         } else {
           console.log(`[SYNC] ✅ Already synced, no changes: ${shopifyItem.orderName}`);
-          // Update lastStatusCheck
-          await prisma.orderMatch.update({
-            where: { shopifyLineItemId: shopifyItem.lineItemId },
-            data: { lastStatusCheck: new Date() },
-          });
         }
       } else {
         // New match - create in DB

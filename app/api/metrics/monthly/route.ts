@@ -1,124 +1,153 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/app/lib/prisma";
 import { toNumberSafe } from "@/app/utils/numbers";
+import type { Prisma } from "@prisma/client";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-/**
- * GET /api/metrics/monthly?year=2026&export=csv
- * 
- * Returns monthly aggregated financial data
- * Optionally exports as CSV
- */
+interface MonthlyMetricsRow {
+  month: string;
+  monthNum: number;
+  salesChf: number;
+  grossMarginChf: number;
+  adsSpendChf: number;
+  postageShippingCostChf: number;
+  fulfillmentCostChf: number;
+  netAfterVariableCostsChf: number;
+  marginPct: number;
+  notes: string;
+}
+
+const SAFE_YEAR_MIN = 2020;
+const SAFE_YEAR_MAX = 2100;
+
 export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url);
     const yearParam = searchParams.get("year");
     const exportFormat = searchParams.get("export"); // "csv" or null
-    
+
     const currentYear = new Date().getFullYear();
     const year = yearParam ? parseInt(yearParam) : currentYear;
-    
-    if (isNaN(year) || year < 2020 || year > 2100) {
+
+    if (isNaN(year) || year < SAFE_YEAR_MIN || year > SAFE_YEAR_MAX) {
       return NextResponse.json(
         { error: "Invalid year parameter" },
         { status: 400 }
       );
     }
-    
-    // Get all months of the year
-    const months = Array.from({ length: 12 }, (_, i) => i + 1);
-    
-    const monthlyData = await Promise.all(months.map(async (month) => {
-      const monthKey = `${year}-${month.toString().padStart(2, '0')}`;
-      const startDate = new Date(year, month - 1, 1);
-      const endDate = new Date(year, month, 0, 23, 59, 59, 999);
-      
-      // Fetch order matches for the month (using sell date)
-      const matches = await prisma.orderMatch.findMany({
-        where: {
-          createdAt: {
-            gte: startDate,
-            lte: endDate,
-          },
+
+    const yearStart = new Date(Date.UTC(year, 0, 1, 0, 0, 0, 0));
+    const yearEnd = new Date(Date.UTC(year, 11, 31, 23, 59, 59, 999));
+
+    const matches = await prisma.orderMatch.findMany({
+      where: {
+        createdAt: {
+          gte: yearStart,
+          lte: yearEnd,
         },
-        select: {
-          shopifyTotalPrice: true,
-          supplierCost: true,
-          marginAmount: true,
-          manualRevenueAdjustment: true,
+      },
+      select: {
+        createdAt: true,
+        shopifyTotalPrice: true,
+        supplierCost: true,
+        marginAmount: true,
+        manualRevenueAdjustment: true,
+      },
+    });
+
+    const adsSpendRecords = await prisma.dailyAdSpend.findMany({
+      where: {
+        date: {
+          gte: yearStart,
+          lte: yearEnd,
         },
-      });
-      
-      // Calculate sales and margin
-      let salesChf = 0;
-      let marginChf = 0;
-      
-      for (const match of matches) {
-        const revenue = toNumberSafe(match.shopifyTotalPrice, 0);
-        const adjustment = toNumberSafe(match.manualRevenueAdjustment, 0);
-        const cost = toNumberSafe(match.supplierCost, 0);
-        const effectiveRevenue = revenue + adjustment;
-        
-        if (effectiveRevenue > 0) {
-          salesChf += effectiveRevenue;
-          marginChf += (effectiveRevenue - cost);
-        }
-      }
-      
-      // Fetch ads spend for the month
-      const adsSpendRecords = await prisma.dailyAdSpend.findMany({
-        where: {
-          date: {
-            gte: startDate,
-            lte: endDate,
-          },
+      },
+    });
+
+    const variableCosts = await prisma.monthlyVariableCosts.findMany({
+      where: {
+        year,
+      },
+    });
+
+    const adsByMonth = new Map<string, number>();
+    for (const record of adsSpendRecords) {
+      const monthKey = record.date.toISOString().slice(0, 7);
+      const existing = adsByMonth.get(monthKey) || 0;
+      adsByMonth.set(monthKey, existing + toNumberSafe(record.amountChf, 0));
+    }
+
+    const variableCostMap = new Map(
+      variableCosts.map((item) => [
+        item.monthKey,
+        {
+          postageShippingCostChf: toNumberSafe(item.postageShippingCostChf, 0),
+          fulfillmentCostChf: toNumberSafe(item.fulfillmentCostChf, 0),
+          notes: item.notes || "",
         },
-      });
-      
-      const adsSpendChf = adsSpendRecords.reduce(
-        (sum, r) => sum + toNumberSafe(r.amountChf, 0),
-        0
-      );
-      
-      // Fetch variable costs for the month
-      const variableCosts = await prisma.monthlyVariableCosts.findUnique({
-        where: { monthKey },
-      });
-      
-      const postageShippingCostChf = variableCosts 
-        ? toNumberSafe(variableCosts.postageShippingCostChf, 0)
-        : 0;
-      
-      const fulfillmentCostChf = variableCosts
-        ? toNumberSafe(variableCosts.fulfillmentCostChf, 0)
-        : 0;
-      
-      // Calculate net after variable costs
-      const netAfterVariableCostsChf = marginChf - adsSpendChf - postageShippingCostChf - fulfillmentCostChf;
-      
-      return {
+      ])
+    );
+
+    const monthlyMap = new Map<string, MonthlyMetricsRow>();
+    for (let month = 1; month <= 12; month++) {
+      const monthKey = `${year}-${month.toString().padStart(2, "0")}`;
+      monthlyMap.set(monthKey, {
         month: monthKey,
         monthNum: month,
-        salesChf: Number(salesChf.toFixed(2)),
-        grossMarginChf: Number(marginChf.toFixed(2)),
-        adsSpendChf: Number(adsSpendChf.toFixed(2)),
-        postageShippingCostChf: Number(postageShippingCostChf.toFixed(2)),
-        fulfillmentCostChf: Number(fulfillmentCostChf.toFixed(2)),
+        salesChf: 0,
+        grossMarginChf: 0,
+        adsSpendChf: adsByMonth.get(monthKey) || 0,
+        postageShippingCostChf: variableCostMap.get(monthKey)?.postageShippingCostChf || 0,
+        fulfillmentCostChf: variableCostMap.get(monthKey)?.fulfillmentCostChf || 0,
+        netAfterVariableCostsChf: 0,
+        marginPct: 0,
+        notes: variableCostMap.get(monthKey)?.notes || "",
+      });
+    }
+
+    for (const match of matches) {
+      const monthKey = match.createdAt.toISOString().slice(0, 7);
+      const row = monthlyMap.get(monthKey);
+      if (!row) continue;
+
+      const revenue = toNumberSafe(match.shopifyTotalPrice, 0);
+      const adjustment = toNumberSafe(match.manualRevenueAdjustment, 0);
+      const cost = toNumberSafe(match.supplierCost, 0);
+      const effectiveRevenue = revenue + adjustment;
+      if (effectiveRevenue <= 0) continue;
+
+      row.salesChf += effectiveRevenue;
+      row.grossMarginChf += Math.max(effectiveRevenue - cost, 0);
+    }
+
+    const rows = Array.from(monthlyMap.values()).map((row) => {
+      const netAfterVariableCostsChf =
+        row.grossMarginChf - row.adsSpendChf - row.postageShippingCostChf - row.fulfillmentCostChf;
+
+      return {
+        ...row,
         netAfterVariableCostsChf: Number(netAfterVariableCostsChf.toFixed(2)),
-        marginPct: salesChf > 0 ? Number(((marginChf / salesChf) * 100).toFixed(2)) : 0,
-        notes: variableCosts?.notes || "",
+        marginPct: row.salesChf > 0 ? Number(((row.grossMarginChf / row.salesChf) * 100).toFixed(2)) : 0,
+        salesChf: Number(row.salesChf.toFixed(2)),
+        grossMarginChf: Number(row.grossMarginChf.toFixed(2)),
+        adsSpendChf: Number(row.adsSpendChf.toFixed(2)),
+        postageShippingCostChf: Number(row.postageShippingCostChf.toFixed(2)),
+        fulfillmentCostChf: Number(row.fulfillmentCostChf.toFixed(2)),
       };
-    }));
-    
-    // Filter out months with no data (optional: keep all months for completeness)
-    const monthsWithData = monthlyData.filter(m => m.salesChf > 0 || m.adsSpendChf > 0 || m.postageShippingCostChf > 0);
-    
-    // If CSV export requested
+    });
+
+    const filteredRows = rows.filter(
+      (row) =>
+        row.salesChf > 0 ||
+        row.adsSpendChf > 0 ||
+        row.postageShippingCostChf > 0 ||
+        row.fulfillmentCostChf > 0
+    );
+
     if (exportFormat === "csv") {
-      const csv = generateCSV(monthsWithData);
-      
+      const csv = generateCSV(filteredRows);
       return new NextResponse(csv, {
         status: 200,
         headers: {
@@ -127,43 +156,64 @@ export async function GET(req: NextRequest) {
         },
       });
     }
-    
-    // Calculate year totals
-    const yearTotals = {
-      salesChf: monthsWithData.reduce((sum, m) => sum + m.salesChf, 0),
-      grossMarginChf: monthsWithData.reduce((sum, m) => sum + m.grossMarginChf, 0),
-      adsSpendChf: monthsWithData.reduce((sum, m) => sum + m.adsSpendChf, 0),
-      postageShippingCostChf: monthsWithData.reduce((sum, m) => sum + m.postageShippingCostChf, 0),
-      fulfillmentCostChf: monthsWithData.reduce((sum, m) => sum + m.fulfillmentCostChf, 0),
-      netAfterVariableCostsChf: monthsWithData.reduce((sum, m) => sum + m.netAfterVariableCostsChf, 0),
-    };
-    
-    return NextResponse.json({
-      success: true,
-      year,
-      months: monthsWithData,
-      yearTotals: {
-        ...yearTotals,
-        marginPct: yearTotals.salesChf > 0 
-          ? Number(((yearTotals.grossMarginChf / yearTotals.salesChf) * 100).toFixed(2))
-          : 0,
+
+    const yearTotals = filteredRows.reduce(
+      (totals, row) => {
+        totals.salesChf += row.salesChf;
+        totals.grossMarginChf += row.grossMarginChf;
+        totals.adsSpendChf += row.adsSpendChf;
+        totals.postageShippingCostChf += row.postageShippingCostChf;
+        totals.fulfillmentCostChf += row.fulfillmentCostChf;
+        totals.netAfterVariableCostsChf += row.netAfterVariableCostsChf;
+        return totals;
       },
-    }, { status: 200 });
-    
+      {
+        salesChf: 0,
+        grossMarginChf: 0,
+        adsSpendChf: 0,
+        postageShippingCostChf: 0,
+        fulfillmentCostChf: 0,
+        netAfterVariableCostsChf: 0,
+      }
+    );
+
+    return NextResponse.json(
+      {
+        success: true,
+        year,
+        months: filteredRows,
+        yearTotals: {
+          ...yearTotals,
+          marginPct:
+            yearTotals.salesChf > 0
+              ? Number(((yearTotals.grossMarginChf / yearTotals.salesChf) * 100).toFixed(2))
+              : 0,
+        },
+      },
+      { status: 200 }
+    );
   } catch (error: any) {
     console.error("[METRICS/MONTHLY] Error:", error);
     return NextResponse.json(
-      { error: "Failed to fetch monthly metrics", details: error.message },
+      { error: "Failed to fetch monthly metrics", details: error?.message || String(error) },
       { status: 500 }
     );
   }
 }
 
-/**
- * Generate CSV from monthly data
- * Accounting-friendly column names
- */
-function generateCSV(data: any[]): string {
+interface MonthlyCsvRow {
+  month: string;
+  salesChf: number;
+  grossMarginChf: number;
+  marginPct: number;
+  adsSpendChf: number;
+  postageShippingCostChf: number;
+  fulfillmentCostChf: number;
+  netAfterVariableCostsChf: number;
+  notes: string;
+}
+
+function generateCSV(data: MonthlyMetricsRow[]): string {
   const headers = [
     "month",
     "sales_chf",
@@ -175,24 +225,36 @@ function generateCSV(data: any[]): string {
     "net_after_variable_costs_chf",
     "notes",
   ];
-  
-  const rows = data.map(row => [
-    row.month,
-    row.salesChf,
-    row.grossMarginChf,
-    row.marginPct,
-    row.adsSpendChf,
-    row.postageShippingCostChf,
-    row.fulfillmentCostChf,
-    row.netAfterVariableCostsChf,
-    `"${(row.notes || "").replace(/"/g, '""')}"`, // Escape quotes
-  ]);
-  
+
+  const rows = data.map<MonthlyCsvRow>((row) => ({
+    month: row.month,
+    salesChf: row.salesChf,
+    grossMarginChf: row.grossMarginChf,
+    marginPct: row.marginPct,
+    adsSpendChf: row.adsSpendChf,
+    postageShippingCostChf: row.postageShippingCostChf,
+    fulfillmentCostChf: row.fulfillmentCostChf,
+    netAfterVariableCostsChf: row.netAfterVariableCostsChf,
+    notes: row.notes,
+  }));
+
   const csvLines = [
     headers.join(","),
-    ...rows.map(row => row.join(",")),
+    ...rows.map((row) =>
+      [
+        row.month,
+        row.salesChf,
+        row.grossMarginChf,
+        row.marginPct,
+        row.adsSpendChf,
+        row.postageShippingCostChf,
+        row.fulfillmentCostChf,
+        row.netAfterVariableCostsChf,
+        `"${(row.notes || "").replace(/"/g, '""')}"`,
+      ].join(",")
+    ),
   ];
-  
+
   return csvLines.join("\n");
 }
 

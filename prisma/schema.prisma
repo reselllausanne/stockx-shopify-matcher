@@ -60,6 +60,7 @@ model OrderMatch {
   shopifySizeEU           String?
   shopifyTotalPrice       Decimal  @db.Decimal(10, 2)
   shopifyCurrencyCode     String   @default("CHF")
+  shopifyCreatedAt        DateTime?
   
   // Supplier identifiers (supports StockX, manual, other)
   supplierSource          SupplierSource @default(STOCKX)

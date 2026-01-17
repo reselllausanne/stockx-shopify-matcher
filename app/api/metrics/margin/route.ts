@@ -1,8 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/app/lib/prisma";
+import type { Prisma } from "@prisma/client";
+import { toNumberSafe } from "@/app/utils/numbers";
+import { toZonedTime } from "date-fns-tz";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+const TIMEZONE = "Europe/Zurich";
 
 function median(values: number[]) {
   if (!values.length) return 0;
@@ -23,44 +27,44 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    const endDate = new Date();
-    const startDate = new Date();
-    startDate.setDate(endDate.getDate() - days);
+    const nowZurich = toZonedTime(new Date(), TIMEZONE);
+    const startDateLocal = new Date(Date.UTC(
+      nowZurich.getFullYear(),
+      nowZurich.getMonth(),
+      nowZurich.getDate() - (days - 1),
+      0, 0, 0, 0
+    ));
+    const endDateLocal = new Date(Date.UTC(
+      nowZurich.getFullYear(),
+      nowZurich.getMonth(),
+      nowZurich.getDate(),
+      23, 59, 59, 999
+    ));
 
     // Fetch metrics directly from OrderMatch
-    // Note: We fetch ALL matches (including closed/returned) to show refunds as negative impact
-    // Group by stockxPurchaseDate (StockX order date) instead of createdAt (match date)
-    // For backward compatibility, also include records where stockxPurchaseDate is null but createdAt is in range
+    // Group by Shopify sell date (shopifyCreatedAt) to match dashboard view
     const matches = await prisma.orderMatch.findMany({
       where: {
-        OR: [
-          {
-            stockxPurchaseDate: {
-              gte: startDate,
-              lte: endDate,
-            },
-          },
-          {
-            stockxPurchaseDate: null,
-        createdAt: {
-          gte: startDate,
-          lte: endDate,
+        // Use Shopify sell date only (no fallback)
+        // @ts-expect-error pending Prisma client regeneration
+        shopifyCreatedAt: {
+          gte: startDateLocal,
+          lte: endDateLocal,
         },
-          },
-        ],
-        marginAmount: { gt: 0 },
-        // Include closed cases for loss tracking (they show as negative when adjusted)
       },
       orderBy: {
-        stockxPurchaseDate: "asc",
+        // @ts-expect-error pending Prisma client regeneration
+        shopifyCreatedAt: "asc",
       },
       select: {
         shopifyOrderId: true,
         shopifyOrderName: true,
         createdAt: true,
-        stockxPurchaseDate: true,
+        // @ts-expect-error pending Prisma client regeneration
+        shopifyCreatedAt: true,
         shopifyTotalPrice: true,
         supplierCost: true,
+        manualCostOverride: true,
         marginAmount: true,
         marginPercent: true,
         shopifyCurrencyCode: true,
@@ -101,9 +105,9 @@ export async function GET(request: NextRequest) {
     for (const match of matches) {
       // 💰 POC: Calculate effective revenue (adjusted for refunds/returns)
       // Convert Prisma Decimals to numbers for calculations
-      const revenue = Number(match.shopifyTotalPrice);
-      const revenueAdjustment = match.manualRevenueAdjustment ? Number(match.manualRevenueAdjustment) : 0;
-      const cost = Number(match.supplierCost);
+      const revenue = toNumberSafe(match.shopifyTotalPrice, 0);
+      const revenueAdjustment = toNumberSafe(match.manualRevenueAdjustment, 0);
+      const cost = toNumberSafe(match.manualCostOverride, 0) || toNumberSafe(match.supplierCost, 0);
       const effectiveRevenue = revenue + revenueAdjustment;
       
       // Skip if fully refunded (effectiveRevenue <= 0)
@@ -118,8 +122,9 @@ export async function GET(request: NextRequest) {
         ? (adjustedMarginAmount / effectiveRevenue) * 100 
         : 0;
       
-      // Use StockX purchase date for grouping (fallback to createdAt for old records without purchase date)
-      const dateForGrouping = match.stockxPurchaseDate || match.createdAt;
+      // Use Shopify sell date for grouping (fallback to createdAt if missing)
+      // @ts-expect-error pending Prisma client regeneration
+      const dateForGrouping = match.shopifyCreatedAt || match.createdAt;
       const dateKey = dateForGrouping.toISOString().split("T")[0];
 
       if (!dailyMetrics.has(dateKey)) {
@@ -145,15 +150,16 @@ export async function GET(request: NextRequest) {
       .map(([date, day]) => {
         const sortedMargins = day.margins.sort((a, b) => a - b);
         const mid = Math.floor(sortedMargins.length / 2);
-        const medianMarginPct = sortedMargins.length % 2 === 0
-          ? (sortedMargins[mid - 1] + sortedMargins[mid]) / 2
-          : sortedMargins[mid];
+        const medianMarginPct =
+          sortedMargins.length % 2 === 0
+            ? (sortedMargins[mid - 1] + sortedMargins[mid]) / 2
+            : sortedMargins[mid];
 
         return {
           date,
           sales: Number(day.sales.toFixed(2)),
           marginChf: Number(day.marginChf.toFixed(2)),
-          marginPct: day.sales > 0 ? Number((day.marginChf / day.sales * 100).toFixed(2)) : 0,
+          marginPct: day.sales > 0 ? Number(((day.marginChf / day.sales) * 100).toFixed(2)) : 0,
           medianMarginPct: Number(medianMarginPct.toFixed(2)),
           orderCount: day.count,
         };
@@ -172,8 +178,8 @@ export async function GET(request: NextRequest) {
         overallMarginPct,
       },
       period: {
-        startDate: startDate.toISOString().split("T")[0],
-        endDate: endDate.toISOString().split("T")[0],
+        startDate: startDateLocal.toISOString().split("T")[0],
+        endDate: endDateLocal.toISOString().split("T")[0],
         days,
       },
     });

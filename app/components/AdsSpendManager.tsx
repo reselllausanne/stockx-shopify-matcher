@@ -2,9 +2,17 @@
 
 import { useState, useEffect } from "react";
 import { formatMoneyCHF } from "@/app/utils/numbers";
+import { getJson, postJson, delJson } from "@/app/lib/api";
+
+type AdsSpendRecord = {
+  date: string;
+  amountChf: number;
+  channel: string;
+  notes?: string | null;
+};
 
 export default function AdsSpendManager() {
-  const [records, setRecords] = useState<any[]>([]);
+  const [records, setRecords] = useState<AdsSpendRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [formData, setFormData] = useState({
@@ -22,10 +30,9 @@ export default function AdsSpendManager() {
   const fetchRecords = async () => {
     try {
       setLoading(true);
-      const response = await fetch(`/api/ads-spend?from=${getMonthStart()}`);
-      const data = await response.json();
-      if (data.success) {
-        setRecords(data.records);
+      const response = await getJson<{ success: boolean; records: AdsSpendRecord[] }>(`/api/ads-spend?from=${getMonthStart()}`);
+      if (response.ok && response.data?.success) {
+        setRecords(response.data.records);
       }
     } catch (error) {
       console.error("Failed to fetch ads spend:", error);
@@ -45,19 +52,13 @@ export default function AdsSpendManager() {
     setSaving(true);
 
     try {
-      const response = await fetch("/api/ads-spend", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          ...formData,
-          amountChf: parseFloat(formData.amountChf),
-        }),
+      const response = await postJson<any>("/api/ads-spend", {
+        ...formData,
+        amountChf: parseFloat(formData.amountChf),
       });
 
-      const data = await response.json();
-
       if (!response.ok) {
-        throw new Error(data.error || "Failed to save");
+        throw new Error(response.data?.error || "Failed to save");
       }
 
       setFormData({
@@ -79,12 +80,9 @@ export default function AdsSpendManager() {
     if (!confirm(`Delete ads spend for ${date}?`)) return;
 
     try {
-      const response = await fetch(`/api/ads-spend?date=${date}`, {
-        method: "DELETE",
-      });
-
+      const response = await delJson<any>(`/api/ads-spend?date=${date}`);
       if (!response.ok) {
-        throw new Error("Failed to delete");
+        throw new Error(response.data?.error || "Failed to delete");
       }
 
       fetchRecords();

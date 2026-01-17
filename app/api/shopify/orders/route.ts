@@ -1,14 +1,17 @@
 // app/api/shopify/orders/route.ts
 import { NextResponse } from "next/server";
 import { shopifyGraphQL, extractEUSize } from "@/lib/shopifyAdmin";
+import { formatInTimeZone } from "date-fns-tz";
 
 export const runtime = "nodejs";
+
+const SHOP_TIMEZONE = "Europe/Zurich";
 
 type ShopifyLineItem = {
   shopifyOrderId: string;
   orderId: string;
   orderName: string;
-  createdAt: string;
+  createdAt: string; // Zurich-local ISO string (preserves exact time, adjusted to shop timezone)
   displayFinancialStatus: string | null;
   displayFulfillmentStatus: string | null;
   customerName: string | null;
@@ -22,6 +25,44 @@ type ShopifyLineItem = {
   totalPrice: string; // line total AFTER discounts
   currencyCode: string;
 };
+
+/**
+ * Convert UTC timestamp to shop timezone (Europe/Zurich)
+ * Returns an ISO string that carries the +01:00/+02:00 offset so clients
+ * can interpret it without applying additional offsets.
+ */
+function convertToShopTimezone(utcTimestamp: string): string {
+  const utcDate = new Date(utcTimestamp);
+  return formatInTimeZone(utcDate, SHOP_TIMEZONE, "yyyy-MM-dd'T'HH:mm:ssXXX");
+}
+
+/**
+ * Calculate proportional line item pricing from order total
+ * Ensures line items sum to exact order total (accounting for discounts)
+ */
+function calculateLineItemPricing(
+  orderTotalAmount: number,
+  lineItemCount: number,
+  lineDiscountedAmount: number,
+  lineItemTotalSum: number,
+  quantity: number
+): { unitPrice: string; totalPrice: string } {
+  let realLineTotal: number;
+  
+  if (lineItemCount === 1) {
+    // Single item: use full order total
+    realLineTotal = orderTotalAmount;
+  } else {
+    // Multiple items: proportional allocation
+    const proportion = lineItemTotalSum > 0 ? lineDiscountedAmount / lineItemTotalSum : 0;
+    realLineTotal = orderTotalAmount * proportion;
+  }
+  
+  const totalPrice = realLineTotal.toFixed(2);
+  const unitPrice = quantity > 0 ? (realLineTotal / quantity).toFixed(2) : totalPrice;
+  
+  return { unitPrice, totalPrice };
+}
 
 const QUERY = /* GraphQL */ `
 query OrdersForMatching($first: Int!, $query: String!) {
@@ -69,19 +110,18 @@ query OrdersForMatching($first: Int!, $query: String!) {
 export async function POST(req: Request) {
   try {
     const body = await req.json().catch(() => ({}));
+    const first = Number(body?.first) > 0 ? Number(body.first) : 124;
     
-    // Build query for start of year in UTC (up to 60 orders)
+    // Build query for start of current year (UTC)
     const now = new Date();
-    const yearStart = new Date(Date.UTC(now.getUTCFullYear(), 0, 1, 0, 0, 0, 0)); // Jan 1st, 00:00:00 UTC
-    const isoYearStart = yearStart.toISOString();
+    const yearStart = new Date(Date.UTC(now.getUTCFullYear(), 0, 1, 0, 0, 0, 0));
+    const search = `created_at:>=${yearStart.toISOString()}`;
     
-    // Fetch orders from start of year (we'll filter fulfilled later)
-    const search = `created_at:>=${isoYearStart}`;
-    console.log(`[SHOPIFY] Fetching up to 60 orders since ${isoYearStart.split('T')[0]} (start of year UTC)...`);
+    console.log(`[SHOPIFY] Fetching up to ${first} orders from ${now.getUTCFullYear()}...`);
 
     const { data, errors } = await shopifyGraphQL<{
       orders: { edges: { node: any }[] };
-    }>(QUERY, { first: 60, query: search });
+    }>(QUERY, { first, query: search });
 
     if (errors?.length) {
       console.error("[SHOPIFY] GraphQL errors:", errors);
@@ -93,32 +133,27 @@ export async function POST(req: Request) {
 
     const edges = data?.orders?.edges ?? [];
     const lineItems: ShopifyLineItem[] = [];
-    let skippedFulfilled = 0;
     let skippedBeforeJan1 = 0;
 
     for (const e of edges) {
       const o = e.node;
-      const orderId = o.id;
-      const orderName = o.name;
-      const createdAt = o.createdAt;
-      const displayFinancialStatus = o.displayFinancialStatus ?? null;
-      const displayFulfillmentStatus = o.displayFulfillmentStatus ?? null;
-      const customerName = o.customer?.displayName ?? null;
-
-      // CRITICAL: Skip fulfilled orders (they can't be matched)
-      if (displayFulfillmentStatus === "FULFILLED" || displayFulfillmentStatus === "SHIPPED") {
-        skippedFulfilled++;
-        continue;
-      }
-
-      // CRITICAL: Skip orders before Jan 1st (double-check)
-      const orderDate = new Date(createdAt);
-      if (orderDate < yearStart) {
+      
+      // Skip orders before Jan 1st (using UTC for consistent filtering)
+      const orderDateUtc = new Date(o.createdAt);
+      if (orderDateUtc < yearStart) {
         skippedBeforeJan1++;
         continue;
       }
 
-      // CRITICAL: Use ORDER-level currentTotalPriceSet (what customer actually pays)
+      // Extract order-level data
+      const orderId = o.id;
+      const orderName = o.name;
+      const createdAt = convertToShopTimezone(o.createdAt);
+      const displayFinancialStatus = o.displayFinancialStatus ?? null;
+      const displayFulfillmentStatus = o.displayFulfillmentStatus ?? null;
+      const customerName = o.customer?.displayName ?? null;
+
+      // Extract order total (what customer actually pays)
       const orderTotal = o.currentTotalPriceSet?.shopMoney;
       const orderTotalAmount = orderTotal?.amount ? parseFloat(orderTotal.amount) : 0;
       const orderCurrency = orderTotal?.currencyCode || "CHF";
@@ -126,7 +161,7 @@ export async function POST(req: Request) {
       const liEdges = o.lineItems?.edges ?? [];
       const lineItemCount = liEdges.length;
 
-      // Calculate line item sum for proportional allocation
+      // Calculate line item sum for proportional allocation (multi-item orders only)
       let lineItemTotalSum = 0;
       if (lineItemCount > 1) {
         for (const liE of liEdges) {
@@ -135,39 +170,27 @@ export async function POST(req: Request) {
         }
       }
 
+      // Process each line item
       for (const liE of liEdges) {
         const li = liE.node;
-
-        const discounted = li.discountedTotalSet?.shopMoney;
         const qty = Number(li.quantity ?? 0);
+        const lineDiscountedAmount = li.discountedTotalSet?.shopMoney?.amount 
+          ? parseFloat(li.discountedTotalSet.shopMoney.amount) 
+          : 0;
 
-        // Calculate REAL line total (proportional share of order total)
-        let realLineTotal: number;
-        if (lineItemCount === 1) {
-          // Single item: use full order total
-          realLineTotal = orderTotalAmount;
-        } else {
-          // Multiple items: proportional allocation
-          const lineDiscounted = discounted?.amount ? parseFloat(discounted.amount) : 0;
-          const proportion = lineItemTotalSum > 0 ? lineDiscounted / lineItemTotalSum : 0;
-          realLineTotal = orderTotalAmount * proportion;
-        }
+        // Calculate pricing (proportional allocation for multi-item orders)
+        const { unitPrice, totalPrice } = calculateLineItemPricing(
+          orderTotalAmount,
+          lineItemCount,
+          lineDiscountedAmount,
+          lineItemTotalSum,
+          qty
+        );
 
-        const totalAmount = realLineTotal.toFixed(2);
-        const unitAmount = qty > 0 ? (realLineTotal / qty).toFixed(2) : totalAmount;
-
+        // Extract product info
         const variantTitle = li.variantTitle ?? null;
         const productName = li.name ?? li.title ?? "Unknown Product";
-        const sizeEU =
-          extractEUSize(variantTitle) ?? extractEUSize(productName) ?? null;
-
-        // Debug missing name
-        if (!li.name && !li.title) {
-          console.warn(`[SHOPIFY] Line item ${li.id} missing name/title`, {
-            sku: li.sku,
-            variantTitle: li.variantTitle,
-          });
-        }
+        const sizeEU = extractEUSize(variantTitle) ?? extractEUSize(productName) ?? null;
 
         lineItems.push({
           shopifyOrderId: orderId,
@@ -183,21 +206,24 @@ export async function POST(req: Request) {
           variantTitle,
           sizeEU,
           quantity: qty,
-          price: unitAmount,      // From ORDER total (all discounts)
-          totalPrice: totalAmount, // From ORDER total (all discounts)
+          price: unitPrice,
+          totalPrice,
           currencyCode: orderCurrency,
         });
       }
     }
 
-    console.log(`[SHOPIFY] Fetched ${lineItems.length} line items from ${edges.length} orders (${skippedFulfilled} fulfilled skipped, ${skippedBeforeJan1} before Jan 1 skipped)`);
+    console.log(
+      `[SHOPIFY] Fetched ${lineItems.length} line items from ${edges.length} orders ` +
+      `(${skippedBeforeJan1} skipped before Jan 1)`
+    );
+    
     return NextResponse.json({ 
       lineItems,
       metadata: {
         totalOrders: edges.length,
-        skippedFulfilled,
-        skippedBeforeJan1,
         lineItemsCount: lineItems.length,
+        skippedBeforeJan1,
       }
     });
   } catch (err: any) {

@@ -359,11 +359,38 @@ export function matchShopifyToSupplier(
   const isLiquidation = /%/.test(shopifyItem.title); // More robust: % anywhere
 
   if (isExcluded) {
-    console.log(`[SKIP] Fear of God in stock: ${shopifyItem.sku}`);
+    console.log(`[AUTO] Essential Hoodie in stock → auto 42 CHF (SKU ${shopifyItem.sku})`);
+    const supplierOrderNumber = `ESS-${shopifyItem.orderName.replace("#", "")}`;
+    const syntheticSupplier: NormalizedSupplierOrder = {
+      chainId: "",
+      orderId: supplierOrderNumber,
+      supplierOrderNumber,
+      purchaseDate: shopifyItem.createdAt,
+      offerAmount: 42,
+      totalTTC: 42,
+      productTitle: shopifyItem.title,
+      skuKey: shopifyItem.sku || "",
+      sizeEU: shopifyItem.sizeEU || null,
+      statusKey: "ESSENTIAL_STOCK",
+      statusTitle: "Essential Hoodie (in stock)",
+      currencyCode: shopifyItem.currencyCode || "CHF",
+      estimatedDeliveryDate: null,
+      productVariantId: undefined,
+      awb: null,
+      trackingUrl: null,
+    };
+    const syntheticMatch: MatchCandidate = {
+      supplierOrder: syntheticSupplier,
+      score: 999,
+      confidence: "high",
+      reasons: ["Essential Hoodie (auto 42 CHF)", "In-stock SKU list"],
+      timeDiffHours: 0,
+      overThreshold: true,
+    };
     return {
       shopifyItem,
-      bestMatch: null,
-      allCandidates: [],
+      bestMatch: syntheticMatch,
+      allCandidates: [syntheticMatch],
     };
   }
 

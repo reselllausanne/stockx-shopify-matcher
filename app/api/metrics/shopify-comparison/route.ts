@@ -1,54 +1,37 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/app/lib/prisma";
+import type { Prisma } from "@prisma/client";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-export async function GET(req: Request) {
-  try {
-    const { searchParams } = new URL(req.url);
-    const days = parseInt(searchParams.get("days") || "30");
+interface ComparisonRow {
+  orderId: string;
+  orderName: string;
+  createdAt: string;
+  shopifySalePrice: number | null;
+  currency: string;
+  shopify: {
+    stockxOrderNumber: string | null;
+    status: string | null;
+    supplierCost: number | null;
+    marginAmount: number | null;
+    marginPercent: number | null;
+  };
+  db: {
+    salePrice: number | null;
+    stockxOrderNumber: string | null;
+    status: string | null;
+    supplierCost: number | null;
+    marginAmount: number | null;
+    marginPercent: number | null;
+    matchType: string | null;
+    manualCostOverride: number | null;
+  } | null;
+  match: "synced" | "metafields_only" | "manual_cost" | "db_only";
+}
 
-    // Get DB data
-    const endDate = new Date();
-    const startDate = new Date();
-    startDate.setDate(endDate.getDate() - days);
-
-    const dbMatches = await prisma.orderMatch.findMany({
-      where: {
-        createdAt: { gte: startDate, lte: endDate },
-        // Include ALL matches: synced metafields OR manual cost entries
-      },
-      select: {
-        shopifyOrderId: true,
-        shopifyOrderName: true,
-        stockxOrderNumber: true,
-        shopifyTotalPrice: true,
-        supplierCost: true,
-        marginAmount: true,
-        marginPercent: true,
-        stockxStatus: true,
-        shopifyCurrencyCode: true,
-        createdAt: true,
-        matchType: true, // Include matchType to identify manual entries
-        manualCostOverride: true, // Include manual cost info
-        shopifyMetafieldsSynced: true, // Include sync status
-      },
-    });
-
-    // Get Shopify data with metafields
-    const shopifyAccessToken = process.env.ACCESS_TOKEN_SHOPIFY;
-    const shopifyShopDomain = process.env.SHOP_NAME_SHOPIFY;
-    const shopifyApiVersion = process.env.API_VERSION_SHOPIFY || "2024-10";
-
-    if (!shopifyAccessToken || !shopifyShopDomain) {
-      return NextResponse.json(
-        { error: "Shopify credentials not configured" },
-        { status: 500 }
-      );
-    }
-
-    const ordersQuery = `
+const SHOPIFY_QUERY = /* GraphQL */ `
       query getOrders($first: Int!, $namespace: String!) {
         orders(first: $first, reverse: true) {
           edges {
@@ -83,7 +66,46 @@ export async function GET(req: Request) {
       }
     `;
 
-    const shopifyRes = await fetch(
+type ShopifyMoney = {
+  amount: string;
+  currencyCode: string;
+};
+
+type ShopifyNode = {
+  id: string;
+  name: string;
+  createdAt: string;
+  currentTotalPriceSet?: {
+    shopMoney?: ShopifyMoney;
+  };
+  stockxOrderNumber?: { value?: string };
+  status?: { value?: string };
+  supplierCost?: { value?: string };
+  marginAmount?: { value?: string };
+  marginPercent?: { value?: string };
+};
+
+type ShopifyOrderEdge = {
+  node: ShopifyNode;
+};
+
+const metafieldValue = (value: string | null | undefined) =>
+  value ? Number.parseFloat(value) : null;
+
+const decimalToNumber = (
+  value: Prisma.Decimal | string | number | null | undefined
+): number | null => (value !== null && value !== undefined ? Number(value) : null);
+
+async function fetchShopifyOrders(namespace: string, first = 50): Promise<ShopifyOrderEdge[]> {
+  const shopifyAccessToken = process.env.ACCESS_TOKEN_SHOPIFY;
+  const shopifyShopDomain = process.env.SHOP_NAME_SHOPIFY;
+  const shopifyApiVersion = process.env.API_VERSION_SHOPIFY || "2024-10";
+
+  if (!shopifyAccessToken || !shopifyShopDomain) {
+    throw new Error("Shopify credentials not configured");
+  }
+
+  const res = await fetch(
       `https://${shopifyShopDomain}/admin/api/${shopifyApiVersion}/graphql.json`,
       {
         method: "POST",
@@ -92,41 +114,76 @@ export async function GET(req: Request) {
           "X-Shopify-Access-Token": shopifyAccessToken,
         },
         body: JSON.stringify({
-          query: ordersQuery,
-          variables: { first: 50, namespace: "supplier" },
+        query: SHOPIFY_QUERY,
+        variables: { first, namespace },
         }),
       }
     );
 
-    const shopifyData = await shopifyRes.json();
-    const shopifyOrders = shopifyData?.data?.orders?.edges || [];
+  const payload = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new Error(payload?.errors?.[0]?.message || "Shopify GraphQL failed");
+  }
+  return payload?.data?.orders?.edges || [];
+}
 
-    // Build comparison
-    const comparison = [];
+export async function GET(req: NextRequest) {
+  try {
+    const { searchParams } = new URL(req.url);
+    const daysParam = parseInt(searchParams.get("days") || "30");
+    const days = Number.isFinite(daysParam) && daysParam > 0 ? daysParam : 30;
+
+    // Get DB data
+    const endDate = new Date();
+    const startDate = new Date();
+    startDate.setDate(endDate.getDate() - days);
+
+    const dbMatches = await prisma.orderMatch.findMany({
+      where: {
+        createdAt: { gte: startDate, lte: endDate },
+      },
+      select: {
+        shopifyOrderId: true,
+        shopifyOrderName: true,
+        stockxOrderNumber: true,
+        shopifyTotalPrice: true,
+        supplierCost: true,
+        marginAmount: true,
+        marginPercent: true,
+        stockxStatus: true,
+        shopifyCurrencyCode: true,
+        createdAt: true,
+        matchType: true,
+        manualCostOverride: true,
+        shopifyMetafieldsSynced: true,
+      },
+    });
+
+    const shopifyOrders = await fetchShopifyOrders("supplier", 50);
+
+    const comparison: ComparisonRow[] = [];
     
     for (const edge of shopifyOrders) {
-      const order = edge.node;
-      const orderId = order.id;
+      const node = edge.node;
+      const orderId = node.id;
       
-      // Extract metafield values directly
-      const stockxOrderNumber = order.stockxOrderNumber?.value || null;
-      const status = order.status?.value || null;
-      const supplierCost = order.supplierCost?.value ? parseFloat(order.supplierCost.value) : null;
-      const marginAmount = order.marginAmount?.value ? parseFloat(order.marginAmount.value) : null;
-      const marginPercent = order.marginPercent?.value ? parseFloat(order.marginPercent.value) : null;
+      const shopifySalePrice = node.currentTotalPriceSet?.shopMoney?.amount
+        ? Number.parseFloat(node.currentTotalPriceSet.shopMoney.amount)
+        : null;
+      const currency =
+        node.currentTotalPriceSet?.shopMoney?.currencyCode || "CHF";
+      const stockxOrderNumber = node.stockxOrderNumber?.value || null;
+      const status = node.status?.value || null;
+      const supplierCost = metafieldValue(node.supplierCost?.value);
+      const marginAmount = metafieldValue(node.marginAmount?.value);
+      const marginPercent = metafieldValue(node.marginPercent?.value);
 
-      // Find DB match
       const dbMatch = dbMatches.find((m) => m.shopifyOrderId === orderId);
 
-      // Get Shopify sale price (current price after discounts)
-      const shopifySalePrice = order.currentTotalPriceSet?.shopMoney?.amount 
-        ? parseFloat(order.currentTotalPriceSet.shopMoney.amount) 
-        : null;
+      if (!dbMatch && !stockxOrderNumber) continue;
 
-      // Only include orders that have metafields OR DB match
-      if (dbMatch || stockxOrderNumber) {
         const isManualCost = dbMatch?.matchType === "MANUAL_COST";
-        const matchStatus = !dbMatch 
+      const matchStatus: ComparisonRow["match"] = !dbMatch
           ? "metafields_only" 
           : isManualCost 
           ? "manual_cost" 
@@ -136,10 +193,10 @@ export async function GET(req: Request) {
 
         comparison.push({
           orderId,
-          orderName: order.name,
-          createdAt: order.createdAt,
-          shopifySalePrice, // Add sale price
-          currency: order.currentTotalPriceSet?.shopMoney?.currencyCode || dbMatch?.shopifyCurrencyCode || "CHF",
+        orderName: node.name,
+        createdAt: node.createdAt,
+        shopifySalePrice,
+        currency,
           shopify: {
             stockxOrderNumber,
             status,
@@ -149,30 +206,28 @@ export async function GET(req: Request) {
           },
           db: dbMatch
             ? {
-                salePrice: dbMatch.shopifyTotalPrice, // Add DB sale price for comparison
+              salePrice: decimalToNumber(dbMatch.shopifyTotalPrice),
                 stockxOrderNumber: dbMatch.stockxOrderNumber,
                 status: dbMatch.stockxStatus,
-                supplierCost: dbMatch.supplierCost,
-                marginAmount: dbMatch.marginAmount,
-                marginPercent: dbMatch.marginPercent,
-                matchType: dbMatch.matchType, // Show if manual
-                manualCostOverride: dbMatch.manualCostOverride, // Show manual cost
+              supplierCost: decimalToNumber(dbMatch.supplierCost),
+              marginAmount: decimalToNumber(dbMatch.marginAmount),
+              marginPercent: decimalToNumber(dbMatch.marginPercent),
+              matchType: dbMatch.matchType,
+              manualCostOverride: decimalToNumber(dbMatch.manualCostOverride),
               }
             : null,
           match: matchStatus,
         });
-      }
     }
 
-    // Add DB-only matches that aren't in Shopify's recent orders
-    const shopifyOrderIds = new Set(shopifyOrders.map(e => e.node.id));
+    const shopifyOrderIds = new Set(shopifyOrders.map((edge) => edge.node.id));
     for (const dbMatch of dbMatches) {
-      if (!shopifyOrderIds.has(dbMatch.shopifyOrderId)) {
+      if (shopifyOrderIds.has(dbMatch.shopifyOrderId)) continue;
         comparison.push({
           orderId: dbMatch.shopifyOrderId,
           orderName: dbMatch.shopifyOrderName,
-          createdAt: dbMatch.createdAt,
-          shopifySalePrice: dbMatch.shopifyTotalPrice,
+        createdAt: dbMatch.createdAt.toISOString(),
+        shopifySalePrice: decimalToNumber(dbMatch.shopifyTotalPrice),
           currency: dbMatch.shopifyCurrencyCode,
           shopify: {
             stockxOrderNumber: null,
@@ -182,34 +237,35 @@ export async function GET(req: Request) {
             marginPercent: null,
           },
           db: {
-            salePrice: dbMatch.shopifyTotalPrice,
+          salePrice: decimalToNumber(dbMatch.shopifyTotalPrice),
             stockxOrderNumber: dbMatch.stockxOrderNumber,
             status: dbMatch.stockxStatus,
-            supplierCost: dbMatch.supplierCost,
-            marginAmount: dbMatch.marginAmount,
-            marginPercent: dbMatch.marginPercent,
+          supplierCost: decimalToNumber(dbMatch.supplierCost),
+          marginAmount: decimalToNumber(dbMatch.marginAmount),
+          marginPercent: decimalToNumber(dbMatch.marginPercent),
             matchType: dbMatch.matchType,
-            manualCostOverride: dbMatch.manualCostOverride,
+          manualCostOverride: decimalToNumber(dbMatch.manualCostOverride),
           },
           match: dbMatch.matchType === "MANUAL_COST" ? "manual_cost" : "db_only",
         });
-      }
     }
 
-    return NextResponse.json({
-      comparison,
-      summary: {
+    const summary = {
         total: comparison.length,
         synced: comparison.filter((c) => c.match === "synced").length,
         metafieldsOnly: comparison.filter((c) => c.match === "metafields_only").length,
         manualCost: comparison.filter((c) => c.match === "manual_cost").length,
         dbOnly: comparison.filter((c) => c.match === "db_only").length,
-      },
+    };
+
+    return NextResponse.json({
+      comparison,
+      summary,
     });
   } catch (error: any) {
     console.error("[SHOPIFY COMPARISON] Error:", error);
     return NextResponse.json(
-      { error: "Failed to fetch comparison data", details: error.message },
+      { error: "Failed to fetch comparison data", details: error?.message || String(error) },
       { status: 500 }
     );
   }

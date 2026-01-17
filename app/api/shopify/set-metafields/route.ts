@@ -42,6 +42,22 @@ export async function POST(req: Request) {
     const marginAmount = String(body?.marginAmount ?? "0");
     const marginPercent = String(body?.marginPercent ?? "0");
     const trackingNumber = body?.trackingNumber ? String(body.trackingNumber).trim() : null; // ✅ AWB / tracking number
+    let trackingUrl = body?.trackingUrl ? String(body.trackingUrl).trim() : null; // ✅ Full tracking URL
+    if (trackingUrl) {
+      // Normalize and validate to satisfy Shopify "link" type
+      if (!/^https?:\/\//i.test(trackingUrl)) {
+        trackingUrl = `https://${trackingUrl}`;
+      }
+      try {
+        const parsed = new URL(trackingUrl);
+        trackingUrl = parsed.toString(); // canonical
+      } catch (e) {
+        return NextResponse.json(
+          { error: "Invalid trackingUrl for metafield supplier.url_awb (must be a valid link)" },
+          { status: 400 }
+        );
+      }
+    }
 
     // 🔒 CRITICAL: Check if this Supplier order is already matched to a DIFFERENT Shopify order
     const existingMatch = await prisma.orderMatch.findFirst({
@@ -131,6 +147,17 @@ export async function POST(req: Request) {
         key: "tracking_number",
         type: "single_line_text_field",
         value: trackingNumber,
+      });
+    }
+
+    // ✅ Add tracking URL metafield if provided
+    if (trackingUrl) {
+      metafields.push({
+        ownerId: shopifyOrderId,
+        namespace: "supplier",
+        key: "url_awb",
+        type: "url",
+        value: trackingUrl,
       });
     }
 

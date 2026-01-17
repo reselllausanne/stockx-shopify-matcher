@@ -1,5 +1,9 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/app/lib/prisma";
+import { formatInTimeZone } from "date-fns-tz";
+
+const TIMEZONE = "Europe/Zurich";
+// Date handling helpers live in this file
 
 /**
  * POST /api/db/save-match
@@ -11,11 +15,28 @@ export async function POST(req: Request) {
   try {
     const body = await req.json();
 
+    const parseFlexibleDate = (value: any): Date | null => {
+      if (!value) return null;
+      const direct = new Date(value);
+      if (!isNaN(direct.getTime())) return direct;
+      if (typeof value === "string" && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(value)) {
+        const patched = new Date(`${value}:00`);
+        if (!isNaN(patched.getTime())) return patched;
+      }
+      return null;
+    };
+
+    const toDateOnlyUtc = (d: Date | null): Date | null => {
+      if (!d) return null;
+      return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
+    };
+
     const {
       stockxChainId,
       stockxOrderId,
       shopifyOrderId,
       shopifyOrderName,
+      shopifyCreatedAt,
       shopifyLineItemId,
       shopifyProductTitle,
       shopifySku,
@@ -88,6 +109,16 @@ export async function POST(req: Request) {
     const finalMatchType = isManualCostEntry ? "MANUAL_COST" : matchType;
     const finalPurchaseDate = supplierPurchaseDate || stockxPurchaseDate;
     const finalEstimatedDelivery = estimatedDeliveryDate || stockxEstimatedDelivery;
+    const parsedPurchaseDate = toDateOnlyUtc(parseFlexibleDate(finalPurchaseDate));
+    const parsedEstimatedDelivery = toDateOnlyUtc(parseFlexibleDate(finalEstimatedDelivery));
+
+    const parsedShopifyCreatedAt = (() => {
+      const raw = parseFlexibleDate(shopifyCreatedAt);
+      if (!raw) return null;
+      // Store Zurich-local wall time as UTC (no extra offset on display/grouping)
+      const localStr = formatInTimeZone(raw, TIMEZONE, "yyyy-MM-dd'T'HH:mm:ss");
+      return new Date(`${localStr}.000Z`);
+    })();
 
     // Upsert (create or update)
     const match = await prisma.orderMatch.upsert({
@@ -100,7 +131,8 @@ export async function POST(req: Request) {
         stockxProductName: finalStockxProductName,
         stockxSizeEU,
         stockxSkuKey,
-        stockxPurchaseDate: finalPurchaseDate ? new Date(finalPurchaseDate) : undefined,
+        stockxPurchaseDate: parsedPurchaseDate || undefined,
+        shopifyCreatedAt: parsedShopifyCreatedAt || undefined,
         matchConfidence,
         matchScore,
         matchType: finalMatchType,
@@ -109,19 +141,19 @@ export async function POST(req: Request) {
         stockxStatus: finalStockxStatus,
         stockxAwb: stockxAwb || undefined, // Preserve if not provided
         stockxTrackingUrl: stockxTrackingUrl || undefined, // Preserve if not provided
-        stockxEstimatedDelivery: finalEstimatedDelivery,
+        stockxEstimatedDelivery: parsedEstimatedDelivery || undefined,
         supplierCost,
         marginAmount,
         marginPercent,
         manualCostOverride,
         shopifyMetafieldsSynced: shopifyMetafieldsSynced || false,
         shopifyMetafieldsSetAt: shopifyMetafieldsSynced ? new Date() : null,
-        lastStatusCheck: new Date(),
         updatedAt: new Date(),
       },
       create: {
         shopifyOrderId,
         shopifyOrderName,
+        shopifyCreatedAt: parsedShopifyCreatedAt || null,
         shopifyLineItemId,
         shopifyProductTitle,
         shopifySku: shopifySku || null,
@@ -135,7 +167,7 @@ export async function POST(req: Request) {
         stockxProductName: finalStockxProductName,
         stockxSizeEU: stockxSizeEU || null,
         stockxSkuKey: stockxSkuKey || null,
-        stockxPurchaseDate: finalPurchaseDate ? new Date(finalPurchaseDate) : null,
+        stockxPurchaseDate: parsedPurchaseDate || null,
         matchConfidence: matchConfidence ?? (isManualSupplier ? "HIGH" : "MEDIUM"),
         matchScore: matchScore ?? (isManualSupplier ? 1.0 : 0.0),
         matchType: finalMatchType || "MANUAL",
@@ -144,14 +176,13 @@ export async function POST(req: Request) {
         stockxStatus: finalStockxStatus,
         stockxAwb: stockxAwb || null,
         stockxTrackingUrl: stockxTrackingUrl || null,
-        stockxEstimatedDelivery: finalEstimatedDelivery || null,
+        stockxEstimatedDelivery: parsedEstimatedDelivery || null,
         supplierCost: supplierCost ?? 0,
         marginAmount: marginAmount ?? 0,
         marginPercent: marginPercent ?? 0,
         manualCostOverride: manualCostOverride || null,
         shopifyMetafieldsSynced: shopifyMetafieldsSynced || false,
         shopifyMetafieldsSetAt: shopifyMetafieldsSynced ? new Date() : null,
-        lastStatusCheck: new Date(),
       },
     });
 

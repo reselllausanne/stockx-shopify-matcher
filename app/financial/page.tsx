@@ -18,6 +18,41 @@ import {
 } from "recharts";
 import AdsSpendManager from "@/app/components/AdsSpendManager";
 import MonthlyVariableCostsManager from "@/app/components/MonthlyVariableCostsManager";
+import { getJson } from "@/app/lib/api";
+import { toNumberSafe } from "@/app/utils/numbers";
+
+type SalesRow = {
+  date: string;
+  sales: number;
+  marginChf: number;
+};
+
+type Expense = {
+  id: string;
+  amount: number;
+  isBusiness: boolean;
+  date: string;
+  categoryName?: string;
+  accountName?: string;
+  note?: string | null;
+};
+
+type ExpenseCategorySummary = { categoryName: string; total: number };
+
+type MonthlyMetricsResponse = {
+  success: boolean;
+  months: Array<{
+    month: string;
+    salesChf: number;
+    grossMarginChf: number;
+    adsSpendChf: number;
+    postageShippingCostChf: number;
+    fulfillmentCostChf: number;
+    netAfterVariableCostsChf: number;
+    marginPct: number;
+    notes: string;
+  }>;
+};
 
 const VAT_RATE = 0.023; // 2.3% TVA on all sales
 const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#8884d8', '#82ca9d', '#ffc658', '#ff7c7c'];
@@ -28,17 +63,18 @@ export default function FinancialOverviewPage() {
   const [activeTab, setActiveTab] = useState<"expenses" | "ads" | "variable" | "monthly">("expenses");
   
   // Data states
-  const [salesData, setSalesData] = useState<any[]>([]);
-  const [expensesData, setExpensesData] = useState<any[]>([]);
-  const [expensesByCategory, setExpensesByCategory] = useState<any[]>([]);
+  const [salesData, setSalesData] = useState<SalesRow[]>([]);
+  const [expensesData, setExpensesData] = useState<Expense[]>([]);
+  const [expensesByCategory, setExpensesByCategory] = useState<ExpenseCategorySummary[]>([]);
   const [dailyFinancials, setDailyFinancials] = useState<any[]>([]);
-  const [monthlyData, setMonthlyData] = useState<any>(null);
+  const [monthlyData, setMonthlyData] = useState<MonthlyMetricsResponse | null>(null);
   
   // Summary stats
   const [totalSales, setTotalSales] = useState(0);
   const [totalCosts, setTotalCosts] = useState(0);
   const [totalExpenses, setTotalExpenses] = useState(0);
   const [totalVAT, setTotalVAT] = useState(0);
+  const [totalAdsSpend, setTotalAdsSpend] = useState(0);
   const [finalMargin, setFinalMargin] = useState(0);
 
   useEffect(() => {
@@ -53,24 +89,19 @@ export default function FinancialOverviewPage() {
       const fromStr = from.toISOString().split('T')[0];
 
       // Fetch all data in parallel
-      const [salesRes, expensesRes, expenseSummaryRes, monthlyRes] = await Promise.all([
-        fetch(`/api/metrics/margin?days=${days}`),
-        fetch(`/api/expenses?from=${fromStr}`),
-        fetch(`/api/expenses/summary?from=${fromStr}`),
-        fetch(`/api/metrics/monthly?year=${new Date().getFullYear()}`),
+      const [salesJson, expensesJson, expenseSummaryJson, monthlyJson, adsJson] = await Promise.all([
+        getJson<any>(`/api/metrics/margin?days=${days}`),
+        getJson<any>(`/api/expenses?from=${fromStr}`),
+        getJson<any>(`/api/expenses/summary?from=${fromStr}`),
+        getJson<MonthlyMetricsResponse>(`/api/metrics/monthly?year=${new Date().getFullYear()}`),
+        getJson<any>(`/api/ads-spend?from=${fromStr}`),
       ]);
 
-      const [salesJson, expensesJson, expenseSummaryJson, monthlyJson] = await Promise.all([
-        salesRes.json(),
-        expensesRes.json(),
-        expenseSummaryRes.json(),
-        monthlyRes.json(),
-      ]);
-
-      // Process sales data
-      const sales = salesJson.data || [];
-      const totalRev = sales.reduce((sum: number, d: any) => sum + d.sales, 0);
-      const totalSupplierCost = sales.reduce((sum: number, d: any) => sum + (d.sales - d.marginChf), 0);
+      // Process sales data (defensive: API may wrap rows)
+      const salesRaw = salesJson.data?.data ?? salesJson.data;
+      const sales = Array.isArray(salesRaw) ? salesRaw : salesRaw?.rows || [];
+      const totalRev = sales.reduce((sum: number, d: SalesRow) => sum + toNumberSafe(d.sales, 0), 0);
+      const totalSupplierCost = sales.reduce((sum: number, d: SalesRow) => sum + toNumberSafe(d.sales - d.marginChf, 0), 0);
       const vatAmount = totalRev * VAT_RATE;
 
       setSalesData(sales);
@@ -79,17 +110,40 @@ export default function FinancialOverviewPage() {
       setTotalVAT(vatAmount);
 
       // Process expenses data
-      const expensesList = expensesJson.expenses || [];
-      const totalExp = expensesList.reduce((sum: number, e: any) => sum + e.amount, 0);
+      const expensesList: Expense[] = expensesJson.data?.expenses || [];
+      const totalExp = expensesList.reduce((sum: number, e: Expense) => sum + toNumberSafe(e.amount, 0), 0);
       setExpensesData(expensesList);
       setTotalExpenses(totalExp);
 
+      // Process ads spend data
+      const adsRecords = adsJson.data?.records || [];
+      const totalAds = adsRecords.reduce(
+        (sum: number, r: any) => sum + toNumberSafe(r.amountChf, 0),
+        0
+      );
+      setTotalAdsSpend(totalAds);
+
       // Expenses by category
-      const catSummary = expenseSummaryJson.byCategory || [];
+      const catSummary: ExpenseCategorySummary[] = expenseSummaryJson.data?.byCategory || [];
       setExpensesByCategory(catSummary);
 
-      // Monthly data
-      setMonthlyData(monthlyJson);
+      // Monthly data (defensive defaults)
+      const normMonthly = (payload: any) => {
+        const months = payload?.months ?? payload?.data?.months ?? [];
+        const yearTotals =
+          payload?.yearTotals ??
+          payload?.data?.yearTotals ?? {
+            salesChf: 0,
+            grossMarginChf: 0,
+            adsSpendChf: 0,
+            postageShippingCostChf: 0,
+            fulfillmentCostChf: 0,
+            netAfterVariableCostsChf: 0,
+          };
+        const year = payload?.year ?? payload?.data?.year ?? new Date().getFullYear();
+        return { months, yearTotals, year };
+      };
+      setMonthlyData(normMonthly(monthlyJson.data ?? monthlyJson));
 
       // Calculate daily financials
       const dailyMap = new Map<string, any>();
@@ -110,7 +164,7 @@ export default function FinancialOverviewPage() {
 
       // Add expenses data (group by day, split personal/business)
       const dailyExpenses = new Map<string, { personal: number; business: number }>();
-      expensesList.forEach((exp: any) => {
+      expensesList.forEach((exp) => {
         const date = new Date(exp.date).toISOString().split('T')[0];
         const current = dailyExpenses.get(date) || { personal: 0, business: 0 };
         if (exp.isBusiness) {
@@ -129,6 +183,7 @@ export default function FinancialOverviewPage() {
           expenses: 0,
           personalExpenses: 0,
           businessExpenses: 0,
+          adsSpend: 0,
           vat: 0,
           margin: 0
         };
@@ -138,16 +193,42 @@ export default function FinancialOverviewPage() {
         dailyMap.set(date, existing);
       });
 
+      // Add ads spend by day
+      const dailyAds = new Map<string, number>();
+      adsRecords.forEach((r: any) => {
+        const date = String(r.date);
+        const current = dailyAds.get(date) || 0;
+        dailyAds.set(date, current + toNumberSafe(r.amountChf, 0));
+      });
+
+      dailyAds.forEach((amount, date) => {
+        const existing = dailyMap.get(date) || {
+          date,
+          sales: 0,
+          costs: 0,
+          expenses: 0,
+          personalExpenses: 0,
+          businessExpenses: 0,
+          adsSpend: 0,
+          vat: 0,
+          margin: 0
+        };
+        existing.adsSpend = amount;
+        dailyMap.set(date, existing);
+      });
+
       // Calculate final margin for each day
-      const dailyArray = Array.from(dailyMap.values()).map(d => {
-        d.margin = d.sales - d.costs - d.expenses - d.vat;
-        return d;
-      }).sort((a, b) => a.date.localeCompare(b.date));
+      const dailyArray = Array.from(dailyMap.values())
+        .map((d) => {
+          d.margin = d.sales - d.costs - d.expenses - d.adsSpend - d.vat;
+          return d;
+        })
+        .sort((a, b) => a.date.localeCompare(b.date));
 
       setDailyFinancials(dailyArray);
 
-      // Calculate overall final margin
-      const finalMarg = totalRev - totalSupplierCost - totalExp - vatAmount;
+      // Calculate overall final margin (includes ads)
+      const finalMarg = totalRev - totalSupplierCost - totalExp - totalAds - vatAmount;
       setFinalMargin(finalMarg);
 
     } catch (error) {
@@ -293,7 +374,7 @@ export default function FinancialOverviewPage() {
         </div>
 
         {/* Summary Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6 mb-8">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-6 mb-8">
           <div className="bg-white p-6 rounded-lg shadow">
             <div className="text-sm font-medium text-gray-500">Total Sales</div>
             <div className="text-2xl font-bold text-blue-600">CHF {totalSales.toFixed(2)}</div>
@@ -310,6 +391,12 @@ export default function FinancialOverviewPage() {
                 <div className="text-sm font-medium text-gray-500">All Expenses</div>
             <div className="text-2xl font-bold text-red-600">-CHF {totalExpenses.toFixed(2)}</div>
                 <div className="text-xs text-gray-500 mt-1">Personal + Business</div>
+          </div>
+
+          <div className="bg-white p-6 rounded-lg shadow">
+            <div className="text-sm font-medium text-gray-500">Ads Spend</div>
+            <div className="text-2xl font-bold text-orange-600">-CHF {totalAdsSpend.toFixed(2)}</div>
+            <div className="text-xs text-gray-500 mt-1">Marketing costs</div>
           </div>
           
           <div className="bg-white p-6 rounded-lg shadow">
@@ -346,6 +433,7 @@ export default function FinancialOverviewPage() {
               <Bar dataKey="costs" name="Costs" fill="#f97316" />
                   <Bar dataKey="personalExpenses" name="Personal Expenses" fill="#fbbf24" stackId="expenses" />
                   <Bar dataKey="businessExpenses" name="Business Expenses" fill="#ef4444" stackId="expenses" />
+              <Bar dataKey="adsSpend" name="Ads Spend" fill="#fb923c" />
               <Bar dataKey="vat" name="VAT" fill="#a855f7" />
               <Line type="monotone" dataKey="margin" name="Final Margin" stroke="#10b981" strokeWidth={3} />
             </ComposedChart>
@@ -405,6 +493,11 @@ export default function FinancialOverviewPage() {
                     <span className="font-medium text-gray-700">CHF {businessExpenses.toFixed(2)}</span>
                   </div>
               
+              <div className="flex justify-between items-center p-3 bg-gray-50 rounded">
+                    <span className="font-medium text-gray-700">📢 Ads Spend</span>
+                    <span className="text-lg font-bold text-orange-600">- CHF {totalAdsSpend.toFixed(2)}</span>
+                  </div>
+
               <div className="flex justify-between items-center p-3 bg-gray-50 rounded">
                 <span className="font-medium text-gray-700">🏛️ VAT (2.3%)</span>
                 <span className="text-lg font-bold text-purple-600">- CHF {totalVAT.toFixed(2)}</span>

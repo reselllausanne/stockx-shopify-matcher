@@ -5,6 +5,15 @@ import { toNumberSafe } from "@/app/utils/numbers";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+const parseYmdUtc = (value?: string | null): Date | null => {
+  if (!value) return null;
+  const parts = value.split("-");
+  if (parts.length !== 3) return null;
+  const [y, m, d] = parts.map((p) => Number(p));
+  if (!y || !m || !d) return null;
+  return new Date(Date.UTC(y, m - 1, d, 0, 0, 0, 0));
+};
+
 /**
  * GET /api/ads-spend?from=YYYY-MM-DD&to=YYYY-MM-DD
  * Get daily ad spend records
@@ -15,21 +24,17 @@ export async function GET(req: NextRequest) {
     const from = searchParams.get("from");
     const to = searchParams.get("to");
     
-    // Build date filter
+    // Build date filter (UTC, inclusive)
     const dateFilter: any = {};
-    if (from) {
-      const fromDate = new Date(from);
-      if (!isNaN(fromDate.getTime())) {
-        fromDate.setHours(0, 0, 0, 0);
-        dateFilter.gte = fromDate;
-      }
+    const fromDate = parseYmdUtc(from);
+    if (fromDate) {
+      dateFilter.gte = fromDate;
     }
-    if (to) {
-      const toDate = new Date(to);
-      if (!isNaN(toDate.getTime())) {
-        toDate.setHours(23, 59, 59, 999);
-        dateFilter.lte = toDate;
-      }
+    const toDateBase = parseYmdUtc(to);
+    if (toDateBase) {
+      const toDate = new Date(toDateBase);
+      toDate.setUTCHours(23, 59, 59, 999);
+      dateFilter.lte = toDate;
     }
     
     const where = Object.keys(dateFilter).length > 0 ? { date: dateFilter } : {};
@@ -42,13 +47,13 @@ export async function GET(req: NextRequest) {
     });
     
     // Convert Decimals to numbers for frontend
-    const recordsWithNumbers = records.map(r => ({
+    const recordsWithNumbers = records.map((r: any) => ({
       ...r,
       amountChf: toNumberSafe(r.amountChf, 0),
       date: r.date.toISOString().split('T')[0], // YYYY-MM-DD format
     }));
     
-    const total = records.reduce((sum, r) => sum + toNumberSafe(r.amountChf, 0), 0);
+    const total = records.reduce((sum: number, r: any) => sum + toNumberSafe(r.amountChf, 0), 0);
     
     return NextResponse.json({
       success: true,
@@ -90,16 +95,13 @@ export async function POST(req: NextRequest) {
       );
     }
     
-    const dateObj = new Date(date);
-    if (isNaN(dateObj.getTime())) {
+    const dateObj = parseYmdUtc(date);
+    if (!dateObj || isNaN(dateObj.getTime())) {
       return NextResponse.json(
         { error: "Invalid date format. Use YYYY-MM-DD" },
         { status: 400 }
       );
     }
-    
-    // Set to start of day
-    dateObj.setHours(0, 0, 0, 0);
     
     const amount = parseFloat(amountChf);
     if (isNaN(amount) || amount < 0) {
@@ -161,19 +163,46 @@ export async function DELETE(req: NextRequest) {
       );
     }
     
-    const dateObj = new Date(dateStr);
-    if (isNaN(dateObj.getTime())) {
+    const start = parseYmdUtc(dateStr);
+    if (!start || isNaN(start.getTime())) {
       return NextResponse.json(
         { error: "Invalid date format. Use YYYY-MM-DD" },
         { status: 400 }
       );
     }
     
-    dateObj.setHours(0, 0, 0, 0);
+    const dayStart = start;
+    const dayEnd = new Date(start);
+    dayEnd.setUTCHours(23, 59, 59, 999);
     
-    // Use deleteMany for idempotent delete (safe to call multiple times)
+    // Use deleteMany for idempotent delete, inclusive day range to avoid TZ offsets
+    const altStart = new Date(dateStr);
+    const altValid = !isNaN(altStart.getTime());
+    if (altValid) {
+      altStart.setHours(0, 0, 0, 0);
+    }
+    const altEnd = altValid ? new Date(altStart.getTime()) : null;
+    if (altEnd) altEnd.setHours(23, 59, 59, 999);
+
     const result = await prisma.dailyAdSpend.deleteMany({
-      where: { date: dateObj },
+      where: {
+        OR: [
+          {
+            date: {
+              gte: dayStart,
+              lte: dayEnd,
+            },
+          },
+          altValid && altEnd
+            ? {
+                date: {
+                  gte: altStart,
+                  lte: altEnd,
+                },
+              }
+            : undefined,
+        ].filter(Boolean) as any[],
+      },
     });
     
     const deletedCount = result.count;
