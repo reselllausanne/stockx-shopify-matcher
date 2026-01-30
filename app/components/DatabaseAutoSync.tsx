@@ -10,7 +10,7 @@ type Props = {
   dbMatches: MatchRow[];
   manualOverrideExpanded: Record<string, boolean>;
   setManualOverrideExpanded: (v: Record<string, boolean>) => void;
-  manualOverrideData: Record<string, { status: string; adjustment: string; note: string; manualCost: string }>;
+  manualOverrideData: Record<string, { status: string; returnReason: string; returnFeePercent: string; returnedStockValue: string; adjustment: string; note: string; manualCost: string }>;
   setManualOverrideData: (v: Record<string, any>) => void;
   manualOverrideLoading: Record<string, boolean>;
   applyManualOverride: (matchId: string, match: any) => Promise<void>;
@@ -34,6 +34,39 @@ export default function DatabaseAutoSync({
   toNumber,
   openManualEntryModalForEdit,
 }: Props) {
+  const [emailLoading, setEmailLoading] = React.useState<Record<string, boolean>>({});
+
+  const sendMilestoneEmail = async (matchId: string, force: boolean) => {
+    setEmailLoading((prev) => ({ ...prev, [matchId]: true }));
+    try {
+      const res = await fetch("/api/notifications/stockx/send-one", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ matchId, force }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok || json?.ok === false) {
+        throw new Error(json?.error || `HTTP ${res.status}`);
+      }
+
+      if (json?.skipped) {
+        alert(`⏭️ Skipped: already emailed\n\nMilestone: ${json?.milestoneKey || "unknown"}`);
+        return;
+      }
+
+      alert(
+        `✅ Email sent\n\n` +
+          `Milestone: ${json?.milestoneKey || "unknown"}\n` +
+          `To (override): ${json?.to || "unknown"}\n` +
+          `Event: ${json?.eventId || "unknown"}`
+      );
+    } catch (err: any) {
+      alert(`❌ Email failed:\n\n${err?.message || "Unknown error"}`);
+    } finally {
+      setEmailLoading((prev) => ({ ...prev, [matchId]: false }));
+    }
+  };
+
   return (
     <div className="bg-gradient-to-r from-purple-50 to-blue-50 rounded-lg shadow-lg p-6 mt-6 border-2 border-purple-200">
       <div className="flex items-center justify-between mb-4">
@@ -67,14 +100,60 @@ export default function DatabaseAutoSync({
                   <th className="px-3 py-2 text-left">Status</th>
                   <th className="px-3 py-2 text-left">Synced</th>
                   <th className="px-3 py-2 text-left">Margin</th>
-                  <th className="px-3 py-2 text-left">Case Status</th>
+                  <th className="px-3 py-2 text-left">Return Reason</th>
                   <th className="px-3 py-2 text-left">Actions</th>
                 </tr>
               </thead>
               <tbody>
                 {dbMatches.map((match) => {
                   const isExpanded = manualOverrideExpanded[match.id];
-                  const data = manualOverrideData[match.id] || { status: "", adjustment: "", note: "", manualCost: "" };
+                  const hasOverrideData = manualOverrideData[match.id] != null;
+                  const data = manualOverrideData[match.id] || {
+                    status: "",
+                    returnReason: "",
+                    returnFeePercent: "",
+                    returnedStockValue: "",
+                    adjustment: "",
+                    note: "",
+                    manualCost: "",
+                  };
+                  const initialOverride = {
+                    status: match.manualCaseStatus || "",
+                    returnReason: match.returnReason || "",
+                    returnFeePercent:
+                      match.returnFeePercent != null ? String(match.returnFeePercent) : "",
+                    returnedStockValue:
+                      match.returnedStockValueChf != null ? String(match.returnedStockValueChf) : "",
+                    adjustment:
+                      match.manualRevenueAdjustment != null ? String(match.manualRevenueAdjustment) : "",
+                    note: match.manualNote || "",
+                    manualCost:
+                      match.manualCostOverride != null ? String(match.manualCostOverride) : "",
+                  };
+                  const form = hasOverrideData ? data : initialOverride;
+                  const revenue = toNumber(match.shopifyTotalPrice);
+                  const feePercent =
+                    form.returnFeePercent?.trim()
+                      ? parseFloat(form.returnFeePercent)
+                      : form.returnReason === "STORE_CREDIT"
+                      ? 25
+                      : form.returnReason === "EXCHANGE"
+                      ? 15
+                      : form.returnReason === "DAMAGE"
+                      ? 0
+                      : null;
+                  const returnFeeAmount =
+                    form.returnReason && feePercent != null && !isNaN(feePercent)
+                      ? (revenue * feePercent) / 100
+                      : null;
+                  const manualCost = form.manualCost?.trim() ? parseFloat(form.manualCost) : null;
+                  const effectiveCost = manualCost != null ? manualCost : toNumber(match.supplierCost);
+                  const effectiveRevenue =
+                    form.returnReason && returnFeeAmount != null
+                      ? returnFeeAmount
+                      : revenue + (form.adjustment ? parseFloat(form.adjustment) : 0);
+                  const adjustedMargin =
+                    effectiveRevenue != null ? effectiveRevenue - effectiveCost : null;
                   const isLoading = manualOverrideLoading[match.id];
                   return (
                     <React.Fragment key={match.id}>
@@ -107,17 +186,21 @@ export default function DatabaseAutoSync({
                           {toNumber(match.marginPercent).toFixed(1)}%
                         </td>
                         <td className="px-3 py-2">
-                          {match.manualCaseStatus ? (
+                          {match.returnReason ? (
                             <span className="px-2 py-1 rounded text-xs font-semibold bg-orange-100 text-orange-800">
-                              {match.manualCaseStatus}
+                              {match.returnReason}
                             </span>
                           ) : (
-                            <span className="text-xs text-gray-400">Active</span>
+                            <span className="text-xs text-gray-400">None</span>
                           )}
-                          {match.manualRevenueAdjustment && (
+                          {match.returnFeePercent != null && (
                             <div className="text-xs text-orange-600 font-mono mt-1">
-                              {toNumber(match.manualRevenueAdjustment) >= 0 ? "+" : ""}
-                              {toNumber(match.manualRevenueAdjustment).toFixed(2)} CHF
+                              Fee: {toNumber(match.returnFeePercent).toFixed(2)}%
+                            </div>
+                          )}
+                          {match.returnedStockValueChf != null && (
+                            <div className="text-xs text-green-700 font-mono mt-1">
+                              Stock: CHF {toNumber(match.returnedStockValueChf).toFixed(2)}
                             </div>
                           )}
                         </td>
@@ -130,7 +213,38 @@ export default function DatabaseAutoSync({
                             ✏️ Edit
                           </button>
                           <button
-                            onClick={() => setManualOverrideExpanded({ ...manualOverrideExpanded, [match.id]: !isExpanded })}
+                            onClick={() => sendMilestoneEmail(match.id, false)}
+                            disabled={!!emailLoading[match.id]}
+                            className="text-emerald-700 hover:text-emerald-900 font-semibold text-xs px-2 py-1 rounded hover:bg-emerald-50 disabled:opacity-50"
+                            title="Send milestone email (skips if already sent)"
+                          >
+                            {emailLoading[match.id] ? "…" : "📧 Send"}
+                          </button>
+                          <button
+                            onClick={() => {
+                              if (!confirm("Force resend this milestone email?")) return;
+                              sendMilestoneEmail(match.id, true);
+                            }}
+                            disabled={!!emailLoading[match.id]}
+                            className="text-emerald-700 hover:text-emerald-900 font-semibold text-xs px-2 py-1 rounded hover:bg-emerald-50 disabled:opacity-50"
+                            title="Force resend (even if already sent)"
+                          >
+                            📧 Force
+                          </button>
+                          <button
+                            onClick={() => {
+                              const nextExpanded = !isExpanded;
+                              if (nextExpanded && !manualOverrideData[match.id]) {
+                                setManualOverrideData({
+                                  ...manualOverrideData,
+                                  [match.id]: initialOverride,
+                                });
+                              }
+                              setManualOverrideExpanded({
+                                ...manualOverrideExpanded,
+                                [match.id]: nextExpanded,
+                              });
+                            }}
                             className="text-orange-600 hover:text-orange-800 font-semibold text-xs px-2 py-1 rounded hover:bg-orange-50"
                             title="Mark as refund/return"
                           >
@@ -155,24 +269,95 @@ export default function DatabaseAutoSync({
                               <div className="grid grid-cols-3 gap-4 mb-4">
                                 <div>
                                   <label className="block text-xs font-medium text-gray-700 mb-1">
-                                    Case Status
+                                    Return Reason
                                   </label>
                                   <select
-                                    value={data.status}
+                                    value={form.returnReason}
+                                    onChange={(e) => {
+                                      const nextReason = e.target.value;
+                                      const current = manualOverrideData[match.id] || form;
+                                      const defaultFee =
+                                        nextReason === "STORE_CREDIT"
+                                          ? "25"
+                                          : nextReason === "EXCHANGE"
+                                          ? "15"
+                                          : "0";
+                                      const defaultStockValue =
+                                        current.returnedStockValue ||
+                                        (match?.supplierCost != null ? String(match.supplierCost) : "");
+                                      setManualOverrideData({
+                                        ...manualOverrideData,
+                                        [match.id]: {
+                                          ...current,
+                                          returnReason: nextReason,
+                                          returnFeePercent: current.returnFeePercent || defaultFee,
+                                          returnedStockValue: defaultStockValue,
+                                        },
+                                      });
+                                    }}
+                                    className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
+                                  >
+                                    <option value="">None</option>
+                                    <option value="STORE_CREDIT">Store credit</option>
+                                    <option value="EXCHANGE">Exchange</option>
+                                    <option value="DAMAGE">Damage</option>
+                                  </select>
+                                </div>
+                                <div>
+                                  <label className="block text-xs font-medium text-gray-700 mb-1">
+                                    Return Fee (%)
+                                  </label>
+                                  <input
+                                    type="number"
+                                    step="0.01"
+                                    value={form.returnFeePercent}
                                     onChange={(e) =>
                                       setManualOverrideData({
                                         ...manualOverrideData,
-                                        [match.id]: { ...manualOverrideData[match.id], status: e.target.value },
+                                        [match.id]: {
+                                          ...(manualOverrideData[match.id] || form),
+                                          returnFeePercent: e.target.value,
+                                        },
                                       })
                                     }
-                                    className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
-                                  >
-                                    <option value="">ACTIVE (default)</option>
-                                    <option value="CLOSED_CREDIT">CLOSED_CREDIT (store credit)</option>
-                                    <option value="RETURNED">RETURNED (item returned)</option>
-                                    <option value="EXCHANGE_PENDING">EXCHANGE_PENDING</option>
-                                  </select>
+                                    placeholder="e.g., 25 or 15"
+                                    className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm font-mono"
+                                  />
+                                  <p className="text-xs text-gray-500 mt-1">
+                                    Original: CHF {toNumber(match.shopifyTotalPrice).toFixed(2)}
+                                  </p>
+                                  {returnFeeAmount != null && (
+                                    <p className="text-xs text-gray-600 mt-1">
+                                      Return Fee Amount: CHF {returnFeeAmount.toFixed(2)}
+                                    </p>
+                                  )}
                                 </div>
+                                <div>
+                                  <label className="block text-xs font-medium text-gray-700 mb-1">
+                                    Returned Stock Value (CHF)
+                                  </label>
+                                  <input
+                                    type="number"
+                                    step="0.01"
+                                    value={form.returnedStockValue}
+                                    onChange={(e) =>
+                                      setManualOverrideData({
+                                        ...manualOverrideData,
+                                        [match.id]: {
+                                          ...(manualOverrideData[match.id] || form),
+                                          returnedStockValue: e.target.value,
+                                        },
+                                      })
+                                    }
+                                    placeholder="Optional (asset value)"
+                                    className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm font-mono"
+                                  />
+                                  <p className="text-xs text-gray-500 mt-1">
+                                    Current: CHF {toNumber(match.returnedStockValueChf || 0).toFixed(2)}
+                                  </p>
+                                </div>
+                              </div>
+                              <div className="grid grid-cols-3 gap-4 mb-4">
                                 <div>
                                   <label className="block text-xs font-medium text-gray-700 mb-1">
                                     Revenue Adjustment (CHF)
@@ -180,21 +365,19 @@ export default function DatabaseAutoSync({
                                   <input
                                     type="number"
                                     step="0.01"
-                                    value={data.adjustment}
+                                    value={form.adjustment}
                                     onChange={(e) =>
                                       setManualOverrideData({
                                         ...manualOverrideData,
-                                        [match.id]: { ...manualOverrideData[match.id], adjustment: e.target.value },
+                                        [match.id]: {
+                                          ...(manualOverrideData[match.id] || form),
+                                          adjustment: e.target.value,
+                                        },
                                       })
                                     }
                                     placeholder="e.g., -200 for full refund"
                                     className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm font-mono"
                                   />
-                                  <p className="text-xs text-gray-500 mt-1">
-                                    Original: CHF {toNumber(match.shopifyTotalPrice).toFixed(2)}
-                                    {data.adjustment &&
-                                      ` → CHF ${(match.shopifyTotalPrice + parseFloat(data.adjustment || "0")).toFixed(2)}`}
-                                  </p>
                                 </div>
                                 <div>
                                   <label className="block text-xs font-medium text-gray-700 mb-1">
@@ -203,11 +386,14 @@ export default function DatabaseAutoSync({
                                   <input
                                     type="number"
                                     step="0.01"
-                                    value={data.manualCost}
+                                    value={form.manualCost}
                                     onChange={(e) =>
                                       setManualOverrideData({
                                         ...manualOverrideData,
-                                        [match.id]: { ...manualOverrideData[match.id], manualCost: e.target.value },
+                                        [match.id]: {
+                                          ...(manualOverrideData[match.id] || form),
+                                          manualCost: e.target.value,
+                                        },
                                       })
                                     }
                                     placeholder="Leave blank to keep current"
@@ -219,17 +405,27 @@ export default function DatabaseAutoSync({
                                   </p>
                                 </div>
                               </div>
+                              <div className="mt-2 text-xs text-gray-700">
+                                {adjustedMargin != null && (
+                                  <div className={adjustedMargin < 0 ? "text-red-700" : "text-green-700"}>
+                                    Adjusted Margin: CHF {adjustedMargin.toFixed(2)}
+                                  </div>
+                                )}
+                              </div>
                               <div className="mb-4">
                                 <label className="block text-xs font-medium text-gray-700 mb-1">
                                   Note (optional)
                                 </label>
                                 <input
                                   type="text"
-                                  value={data.note}
+                                  value={form.note}
                                   onChange={(e) =>
                                     setManualOverrideData({
                                       ...manualOverrideData,
-                                      [match.id]: { ...manualOverrideData[match.id], note: e.target.value },
+                                      [match.id]: {
+                                        ...(manualOverrideData[match.id] || form),
+                                        note: e.target.value,
+                                      },
                                     })
                                   }
                                   placeholder="e.g., Customer received store credit"
@@ -313,10 +509,6 @@ export default function DatabaseAutoSync({
           <li>
             • <strong>Database</strong>: 💾 All HIGH confidence matches stored locally. MEDIUM/LOW skipped (require
             manual review).
-          </li>
-          <li>
-            • <strong>Cron Jobs</strong>: ⏰ Call <code className="bg-white px-1 rounded">/api/sync/new-orders</code>{" "}
-            every 5-10 min for full automation.
           </li>
         </ul>
       </div>

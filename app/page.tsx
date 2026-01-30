@@ -53,6 +53,8 @@ export default function Home() {
   // DB + Workers state
   const [dbMatches, setDbMatches] = useState<any[]>([]);
   const [dbLoading, setDbLoading] = useState(false);
+  const [orderTestResult, setOrderTestResult] = useState<string | null>(null);
+  const [orderTestLoading, setOrderTestLoading] = useState(false);
 
   const loadFromDB = async () => {
     setDbLoading(true);
@@ -69,6 +71,43 @@ export default function Home() {
       alert(`❌ Error loading from DB:\n\n${error.message}`);
     } finally {
       setDbLoading(false);
+    }
+  };
+
+  const runOrderTest = async () => {
+    setOrderTestLoading(true);
+    setOrderTestResult(null);
+    try {
+      const res = await postJson<any>("/api/shopify/orders", {
+        first: 5,
+        includeExchanges: true,
+        orderExchange: true,
+        orderId: "gid://shopify/Order/12560147906946",
+      });
+      if (!res.ok) {
+        throw new Error(res.data?.error || "Failed to fetch orders");
+      }
+      setOrderTestResult(JSON.stringify(res.data, null, 2));
+    } catch (error: any) {
+      setOrderTestResult(error?.message || "Unknown error");
+    } finally {
+      setOrderTestLoading(false);
+    }
+  };
+
+  const handleFetchExchangeOrder = async () => {
+    if (!exchangeOrderName.trim()) {
+      alert("Please enter a Shopify order number (e.g. #4745)");
+      return;
+    }
+    setExchangeOrderLoading(true);
+    try {
+      await loadExchangeOrderByName(exchangeOrderName.trim());
+      alert(`✅ Loaded exchange line items for ${exchangeOrderName.trim()}`);
+    } catch (err: any) {
+      alert(`❌ Failed to load exchange order:\n\n${err?.message || "Unknown error"}`);
+    } finally {
+      setExchangeOrderLoading(false);
     }
   };
 
@@ -94,10 +133,6 @@ export default function Home() {
     clearManualOverrides,
     handleManualMatch,
     createManualCostEntry,
-    metafieldsSet,
-    setMetafieldsSet,
-    metafieldsLoading,
-    setMetafieldsLoading,
     handleSetMetafields,
     autoSetAllHighMatches,
     manualOverrideExpanded,
@@ -106,6 +141,8 @@ export default function Home() {
     setManualOverrideData,
     manualOverrideLoading,
     applyManualOverride,
+    loadExchangeOrderByName,
+    refreshDbMatchesTracking,
   } = useMatching({
     enrichedOrders,
     orders,
@@ -115,6 +152,8 @@ export default function Home() {
 
   const autoSetAllHighMatchesAndRefresh = async () => {
     await autoSetAllHighMatches();
+    // Important: update existing DB rows too (ETA range, tracking, states)
+    await refreshDbMatchesTracking();
     await loadFromDB();
   };
 
@@ -136,6 +175,8 @@ export default function Home() {
   }>({ isOpen: false, shopifyItem: null, mode: 'create' });
   const [manualEntryData, setManualEntryData] = useState<any>({});
   const [originalEntryData, setOriginalEntryData] = useState<any>({}); // Pour comparer les changements
+  const [exchangeOrderName, setExchangeOrderName] = useState("");
+  const [exchangeOrderLoading, setExchangeOrderLoading] = useState(false);
 
   // Load token from localStorage on mount
   useEffect(() => {
@@ -237,6 +278,7 @@ export default function Home() {
       stockxAwb: "",
       stockxTrackingUrl: "",
       stockxEstimatedDelivery: "",
+      stockxLatestEstimatedDelivery: "",
       
       // Financial data
       supplierCost: "",
@@ -289,9 +331,14 @@ export default function Home() {
       stockxStatus: match.stockxStatus || "MANUAL",
       stockxAwb: match.stockxAwb || "",
       stockxTrackingUrl: match.stockxTrackingUrl || "",
-      stockxEstimatedDelivery: match.stockxEstimatedDelivery 
-        ? new Date(match.stockxEstimatedDelivery).toISOString().slice(0, 16)
+      stockxEstimatedDelivery: match.stockxEstimatedDelivery
+        ? new Date(match.stockxEstimatedDelivery).toISOString().split("T")[0]
         : "",
+      stockxLatestEstimatedDelivery: match.stockxLatestEstimatedDelivery
+        ? new Date(match.stockxLatestEstimatedDelivery).toISOString().split("T")[0]
+        : "",
+      stockxCheckoutType: match.stockxCheckoutType || "",
+      stockxStates: match.stockxStates ? JSON.stringify(match.stockxStates, null, 2) : "",
       
       // Financial data
       supplierCost: toNumber(match.supplierCost).toString(),
@@ -357,31 +404,44 @@ export default function Home() {
           }
         });
         
-        // Build complete data object with all current values
-        saveData = {
-          // Shopify fields
-          shopifyOrderId: data.shopifyOrderId,
-          shopifyOrderName: data.shopifyOrderName,
-          shopifyCreatedAt: data.shopifyCreatedAt || null,
-          shopifyLineItemId: data.shopifyLineItemId,
-          shopifyProductTitle: data.shopifyProductTitle,
-          shopifySku: data.shopifySku || null,
-          shopifySizeEU: data.shopifySizeEU || null,
-          shopifyTotalPrice: data.shopifyTotalPrice,
-          shopifyCurrencyCode: data.shopifyCurrencyCode || "CHF",
-          
-          // Supplier fields
-          stockxOrderNumber: data.stockxOrderNumber || `MANUAL-${Date.now()}`,
-          stockxChainId: data.stockxChainId || null,
-          stockxOrderId: data.stockxOrderId || null,
-          stockxProductName: data.stockxProductName || data.shopifyProductTitle,
-          stockxSizeEU: data.stockxSizeEU || null,
-          stockxSkuKey: data.stockxSkuKey || null,
-          stockxPurchaseDate: data.stockxPurchaseDate || null,
-          stockxStatus: data.stockxStatus || "MANUAL",
-          stockxAwb: data.stockxAwb || null,
-          stockxTrackingUrl: data.stockxTrackingUrl || null,
-          stockxEstimatedDelivery: data.stockxEstimatedDelivery || null,
+      const parsedStatesEdit =
+        typeof data.stockxStates === "string" && data.stockxStates.trim()
+          ? (() => {
+              try {
+                return JSON.parse(data.stockxStates);
+              } catch {
+                return null;
+              }
+            })()
+          : data.stockxStates || null;
+
+      saveData = {
+        // Shopify fields
+        shopifyOrderId: data.shopifyOrderId,
+        shopifyOrderName: data.shopifyOrderName,
+        shopifyCreatedAt: data.shopifyCreatedAt || null,
+        shopifyLineItemId: data.shopifyLineItemId,
+        shopifyProductTitle: data.shopifyProductTitle,
+        shopifySku: data.shopifySku || null,
+        shopifySizeEU: data.shopifySizeEU || null,
+        shopifyTotalPrice: data.shopifyTotalPrice,
+        shopifyCurrencyCode: data.shopifyCurrencyCode || "CHF",
+        
+        // Supplier fields
+        stockxOrderNumber: data.stockxOrderNumber || `MANUAL-${Date.now()}`,
+        stockxChainId: data.stockxChainId || null,
+        stockxOrderId: data.stockxOrderId || null,
+        stockxProductName: data.stockxProductName || data.shopifyProductTitle,
+        stockxSizeEU: data.stockxSizeEU || null,
+        stockxSkuKey: data.stockxSkuKey || null,
+        stockxPurchaseDate: data.stockxPurchaseDate || null,
+        stockxStatus: data.stockxStatus || "MANUAL",
+        stockxAwb: data.stockxAwb || null,
+        stockxTrackingUrl: data.stockxTrackingUrl || null,
+        stockxEstimatedDelivery: data.stockxEstimatedDelivery || null,
+        stockxLatestEstimatedDelivery: data.stockxLatestEstimatedDelivery || null,
+        stockxCheckoutType: data.stockxCheckoutType || null,
+        stockxStates: parsedStatesEdit,
           
           // Match metadata
           matchConfidence: data.matchConfidence || "manual",
@@ -410,6 +470,17 @@ export default function Home() {
         
       } else {
         // ✅ CREATE MODE: Send all fields
+        const parsedStatesCreate =
+          typeof data.stockxStates === "string" && data.stockxStates.trim()
+            ? (() => {
+                try {
+                  return JSON.parse(data.stockxStates);
+                } catch {
+                  return null;
+                }
+              })()
+            : data.stockxStates || null;
+
         saveData = {
           ...data,
           shopifyCreatedAt: data.shopifyCreatedAt || null,
@@ -422,8 +493,11 @@ export default function Home() {
           stockxOrderId: data.stockxOrderId || null,
           stockxPurchaseDate: data.stockxPurchaseDate || null,
           stockxEstimatedDelivery: data.stockxEstimatedDelivery || null,
+          stockxLatestEstimatedDelivery: data.stockxLatestEstimatedDelivery || null,
           stockxAwb: data.stockxAwb || null,
           stockxTrackingUrl: data.stockxTrackingUrl || null,
+          stockxCheckoutType: data.stockxCheckoutType || null,
+          stockxStates: parsedStatesCreate,
           manualCostOverride: data.manualCostOverride ? parseFloat(data.manualCostOverride) : null,
           matchReasons: Array.isArray(data.matchReasons) 
             ? data.matchReasons 
@@ -519,6 +593,43 @@ export default function Home() {
               📈 Financial Overview
             </a>
           </nav>
+        </div>
+
+        <div className="bg-white rounded-lg shadow p-4 mb-6">
+          <h2 className="text-lg font-semibold mb-2">Shopify Order Fetch Test</h2>
+          <p className="text-sm text-gray-600 mb-3">
+            API version in use: <strong>2026-01</strong>
+          </p>
+          <div className="flex flex-wrap gap-2 mb-3">
+            <input
+              type="text"
+              value={exchangeOrderName}
+              onChange={(e) => setExchangeOrderName(e.target.value)}
+              placeholder="Order number (e.g. #4745)"
+              className="px-3 py-2 border border-gray-300 rounded-md text-sm w-56"
+            />
+            <button
+              type="button"
+              onClick={handleFetchExchangeOrder}
+              disabled={exchangeOrderLoading}
+              className="px-4 py-2 bg-emerald-600 text-white rounded-md hover:bg-emerald-700 transition-colors disabled:bg-gray-400"
+            >
+              {exchangeOrderLoading ? "Loading exchange…" : "Load exchange order"}
+            </button>
+          </div>
+          <button
+            type="button"
+            onClick={runOrderTest}
+            disabled={orderTestLoading}
+            className="px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 transition-colors disabled:bg-gray-400"
+          >
+            {orderTestLoading ? "Fetching…" : "Fetch latest 5 orders"}
+          </button>
+          {orderTestResult && (
+            <pre className="mt-3 max-h-48 overflow-auto bg-gray-900 text-xs text-white p-3 rounded">
+              {orderTestResult}
+            </pre>
+          )}
         </div>
 
         <AuthenticationCard

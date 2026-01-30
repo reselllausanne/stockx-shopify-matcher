@@ -13,9 +13,12 @@ export interface NormalizedSupplierOrder {
   statusTitle: string | null;
   currencyCode: string | null;
   estimatedDeliveryDate?: string | null; // Optional: ISO date (for workers)
+  latestEstimatedDeliveryDate?: string | null; // Optional: ISO date (for workers)
   productVariantId?: string; // Optional: for pricing queries (for workers)
   awb?: string | null; // ✅ Air Waybill / tracking number (from Query B)
   trackingUrl?: string | null; // ✅ Full tracking URL (from Query B)
+  stockxCheckoutType?: string | null;
+  stockxStates?: any | null;
 }
 
 export interface ShopifyLineItem {
@@ -26,6 +29,8 @@ export interface ShopifyLineItem {
   displayFulfillmentStatus: string | null;
   customerEmail: string | null;
   customerName: string | null;
+  customerFirstName: string | null;
+  customerLastName: string | null;
   shippingCountry: string | null;
   shippingCity: string | null;
   lineItemId: string;
@@ -37,6 +42,7 @@ export interface ShopifyLineItem {
   totalPrice: string;
   currencyCode: string;
   sizeEU: string | null;
+  lineItemImageUrl: string | null;
 }
 
 export interface MatchCandidate {
@@ -258,7 +264,7 @@ function sizeMatch(size1: string | null, size2: string | null): boolean {
   // Both have sizes: normalize and compare
   const normalize = (size: string) => {
     return size
-      .replace(/^(EU|US|UK|ASIA)\s*/i, "") // Remove EU/US/UK/ASIA prefix
+      .replace(/^(EU|US|UK|ASIA)\s*(M|W)?\s*/i, "") // Remove EU/US/UK/ASIA + optional M/W
       .replace(/\s/g, "") // Remove spaces
       .replace(/ONE\s*SIZE/i, "OS") // Normalize "One Size" to "OS"
       .replace(/O\/S/i, "OS") // Normalize "O/S" to "OS"

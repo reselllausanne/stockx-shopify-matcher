@@ -8,7 +8,7 @@ export async function shopifyGraphQL<T>(
 ): Promise<{ data: T; errors?: ShopifyGqlError[] }> {
   const shop = process.env.SHOP_NAME_SHOPIFY;
   const token = process.env.ACCESS_TOKEN_SHOPIFY;
-  const version = process.env.API_VERSION_SHOPIFY || "2024-10";
+  const version = process.env.API_VERSION_SHOPIFY || "2026-01";
 
   if (!shop || !token) {
     throw new Error("Missing SHOPIFY_SHOP_DOMAIN or SHOPIFY_ADMIN_ACCESS_TOKEN env vars");

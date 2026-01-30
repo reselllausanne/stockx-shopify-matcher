@@ -18,7 +18,10 @@ export async function POST(req: NextRequest) {
       manualCaseStatus, 
       manualRevenueAdjustment, 
       manualNote,
-      manualSupplierCost
+      manualSupplierCost,
+      returnReason,
+      returnFeePercent,
+      returnedStockValueChf,
     } = body;
 
     if (!matchId) {
@@ -33,6 +36,14 @@ export async function POST(req: NextRequest) {
     if (manualCaseStatus && !validStatuses.includes(manualCaseStatus)) {
       return NextResponse.json(
         { error: `Invalid status. Must be one of: ${validStatuses.join(", ")}` },
+        { status: 400 }
+      );
+    }
+
+    const validReturnReasons = [null, "STORE_CREDIT", "EXCHANGE", "DAMAGE"];
+    if (returnReason && !validReturnReasons.includes(returnReason)) {
+      return NextResponse.json(
+        { error: `Invalid returnReason. Must be one of: ${validReturnReasons.join(", ")}` },
         { status: 400 }
       );
     }
@@ -57,10 +68,40 @@ export async function POST(req: NextRequest) {
     console.log(`[MANUAL_OVERRIDE] Manual Cost: CHF ${manualSupplierCost || "null"}`);
 
     // Calculate new margins if manual cost or revenue adjustment changes
-    const effectiveRevenue = existingMatch.shopifyTotalPrice + (manualRevenueAdjustment || existingMatch.manualRevenueAdjustment || 0);
-    const effectiveCost = manualSupplierCost !== undefined && manualSupplierCost !== null 
-      ? manualSupplierCost 
-      : (existingMatch.manualCostOverride || existingMatch.supplierCost);
+    const revenue = Number(existingMatch.shopifyTotalPrice);
+    const defaultFeePercent =
+      returnReason === "STORE_CREDIT" ? 25 : returnReason === "EXCHANGE" ? 15 : returnReason === "DAMAGE" ? 0 : null;
+    const feePercent =
+      returnReason && returnFeePercent !== undefined && returnFeePercent !== null
+        ? Number(returnFeePercent)
+        : defaultFeePercent;
+    const returnFeeAmountChf =
+      returnReason && feePercent !== null && !isNaN(feePercent)
+        ? Number(((revenue * feePercent) / 100).toFixed(2))
+        : null;
+    const resolvedRevenueAdjustment =
+      manualRevenueAdjustment !== undefined && manualRevenueAdjustment !== null
+        ? Number(manualRevenueAdjustment)
+        : Number(existingMatch.manualRevenueAdjustment || 0);
+    const effectiveRevenue =
+      returnReason && returnFeeAmountChf !== null
+        ? returnFeeAmountChf
+        : revenue + resolvedRevenueAdjustment;
+    const supplierCostValue =
+      existingMatch.manualCostOverride !== null && existingMatch.manualCostOverride !== undefined
+        ? Number(existingMatch.manualCostOverride)
+        : Number(existingMatch.supplierCost);
+    const resolvedManualCost =
+      manualSupplierCost !== undefined && manualSupplierCost !== null
+        ? Number(manualSupplierCost)
+        : supplierCostValue;
+    const effectiveCost = resolvedManualCost;
+    const resolvedReturnedStockValue =
+      returnedStockValueChf !== undefined && returnedStockValueChf !== null
+        ? Number(returnedStockValueChf)
+        : returnReason
+        ? Number(effectiveCost)
+        : null;
     
     const newMarginAmount = effectiveRevenue - effectiveCost;
     const newMarginPercent = effectiveRevenue > 0 
@@ -77,6 +118,11 @@ export async function POST(req: NextRequest) {
         manualRevenueAdjustment: manualRevenueAdjustment !== undefined ? manualRevenueAdjustment : undefined,
         manualNote: manualNote || null,
         manualCostOverride: manualSupplierCost !== undefined && manualSupplierCost !== null ? manualSupplierCost : undefined,
+        returnReason: returnReason || null,
+        returnFeePercent: returnReason ? (feePercent !== null ? feePercent : undefined) : null,
+        returnFeeAmountChf: returnReason ? (returnFeeAmountChf !== null ? returnFeeAmountChf : undefined) : null,
+        returnAppliedAt: returnReason ? new Date() : null,
+        returnedStockValueChf: returnReason ? (resolvedReturnedStockValue !== null ? resolvedReturnedStockValue : undefined) : null,
         // Recalculate financial fields
         supplierCost: effectiveCost,
         marginAmount: newMarginAmount,

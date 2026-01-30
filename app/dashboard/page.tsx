@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import React, { useState, useEffect } from "react";
 import {
   ComposedChart,
   Bar,
@@ -21,6 +21,8 @@ interface DailyRow {
   costChf: number;
   marginChf: number;
   marginPct: number;
+  returnMarginLostChf: number;
+  returnedStockValueChf: number;
   adsSpendChf: number;
   netAfterAdsChf: number;
   ordersCount: number;
@@ -38,6 +40,7 @@ type DailyDetailRow = {
   shopifyCreatedAt: string;
   stockxOrderNumber: string | null;
   supplierSource: string | null;
+  returnReason?: string | null;
   revenue: number;
   cost: number;
   margin: number;
@@ -102,7 +105,6 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [range, setRange] = useState(30);
-  const [syncing, setSyncing] = useState(false);
   const [clearing, setClearing] = useState(false);
   const [expandedDate, setExpandedDate] = useState<string | null>(null);
   const [detailsByDate, setDetailsByDate] = useState<Record<string, DailyDetailRow[]>>({});
@@ -111,25 +113,6 @@ export default function DashboardPage() {
   useEffect(() => {
     fetchMetrics();
   }, [range]);
-
-  const syncShopifyOrders = async () => {
-    try {
-      setSyncing(true);
-      // Sync orders from start of current year (2026-01-01)
-      const startOfYear = new Date(new Date().getFullYear(), 0, 1).toISOString().split('T')[0];
-      const response = await postJson<any>("/api/sync/shopify-orders", { startDate: startOfYear });
-      if (response.ok) {
-        alert(`✅ Synced ${response.data?.synced || 0} Shopify orders from ${startOfYear}!`);
-        fetchMetrics(); // Refresh metrics after sync
-      } else {
-        alert(`❌ Sync failed: ${response.data?.error || "Unknown error"}`);
-      }
-    } catch (err: any) {
-      alert(`❌ Error: ${err.message}`);
-    } finally {
-      setSyncing(false);
-    }
-  };
 
   const clearAllOrders = async () => {
     // Double confirmation for safety
@@ -172,7 +155,7 @@ export default function DashboardPage() {
           `Deleted:\n` +
           `  • ${deleted.shopifyOrders || 0} Shopify orders\n` +
           `  • ${deleted.orderMatches || 0} order matches\n\n` +
-          `Next: Click "Sync Orders (From Jan 1)" to start fresh!`
+          `Next: Reload your data from the main matching flow.`
         );
         fetchMetrics(); // Refresh metrics (will show empty)
       } else {
@@ -248,6 +231,18 @@ export default function DashboardPage() {
           detail: `${formatPercent(totals.marginPct)} real margin`,
           color: "green",
         },
+        {
+          title: "Returned Stock",
+          value: totals.returnedStockValueChf,
+          detail: "Returned inventory value",
+          color: "cyan",
+        },
+        {
+          title: "Return Margin Lost",
+          value: totals.returnMarginLostChf,
+          detail: "Cost - return fee",
+          color: "red",
+        },
         { title: "Ads Spend", value: totals.adsSpendChf, detail: "Marketing costs", color: "orange" },
         { title: "Net After Ads", value: totals.netAfterAdsChf, detail: "Margin - ads", color: "teal" },
       ]
@@ -304,19 +299,11 @@ export default function DashboardPage() {
           ))}
           <button
             onClick={clearAllOrders}
-            disabled={clearing || syncing}
+            disabled={clearing}
             className="ml-auto px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 font-medium disabled:opacity-50 disabled:cursor-not-allowed"
             title="Clear all Shopify orders and order matches (keeps expenses, ads spend, etc.)"
           >
             {clearing ? "⏳ Clearing..." : "🗑️ Clear All Orders"}
-          </button>
-          <button
-            onClick={syncShopifyOrders}
-            disabled={syncing || clearing}
-            className="px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 font-medium disabled:opacity-50 disabled:cursor-not-allowed"
-            title="Sync all Shopify orders from the start of the year (2026-01-01)"
-          >
-            {syncing ? "⏳ Syncing..." : "🔄 Sync Orders (From Jan 1)"}
           </button>
           <button
             onClick={fetchMetrics}
@@ -428,7 +415,7 @@ export default function DashboardPage() {
                   </thead>
                   <tbody className="bg-white divide-y divide-gray-200">
                   {metrics.rows.map((row, i) => (
-                    <tbody key={i} className="divide-y divide-gray-200">
+                    <React.Fragment key={i}>
                     <tr
                       className="hover:bg-gray-50 cursor-pointer"
                       onClick={() => toggleDayDetails(row.date)}
@@ -509,7 +496,9 @@ export default function DashboardPage() {
                                       </td>
                                       <td className="px-3 py-2 text-right">CHF {d.revenue.toFixed(2)}</td>
                                       <td className="px-3 py-2 text-right">CHF {d.cost.toFixed(2)}</td>
-                                      <td className="px-3 py-2 text-right font-semibold">
+                                      <td className={`px-3 py-2 text-right font-semibold ${
+                                        d.margin < 0 ? "text-red-600" : "text-green-700"
+                                      }`}>
                                         CHF {d.margin.toFixed(2)}
                                       </td>
                                       <td className="px-3 py-2">{d.supplierSource || "—"}</td>
@@ -523,7 +512,7 @@ export default function DashboardPage() {
                         </td>
                       </tr>
                     )}
-                    </tbody>
+                    </React.Fragment>
                   ))}
                   </tbody>
                 </table>

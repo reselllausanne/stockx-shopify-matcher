@@ -14,12 +14,18 @@ type ShopifyLineItem = {
   createdAt: string; // Zurich-local ISO string (preserves exact time, adjusted to shop timezone)
   displayFinancialStatus: string | null;
   displayFulfillmentStatus: string | null;
+  customerEmail: string | null;
   customerName: string | null;
+  customerFirstName: string | null;
+  customerLastName: string | null;
+  shippingCountry: string | null;
+  shippingCity: string | null;
   lineItemId: string;
   title: string;
   sku: string | null;
   variantTitle: string | null;
   sizeEU: string | null;
+  lineItemImageUrl: string | null;
   quantity: number;
   price: string;      // unit price AFTER discounts
   totalPrice: string; // line total AFTER discounts
@@ -64,9 +70,9 @@ function calculateLineItemPricing(
   return { unitPrice, totalPrice };
 }
 
-const QUERY = /* GraphQL */ `
-query OrdersForMatching($first: Int!, $query: String!) {
-  orders(first: $first, query: $query, sortKey: CREATED_AT, reverse: true) {
+const ORDERS_QUERY = /* GraphQL */ `
+query LastOrders($first: Int!, $orderQuery: String) {
+  orders(first: $first, query: $orderQuery, sortKey: CREATED_AT, reverse: true) {
     edges {
       node {
         id
@@ -74,7 +80,14 @@ query OrdersForMatching($first: Int!, $query: String!) {
         createdAt
         displayFinancialStatus
         displayFulfillmentStatus
-        customer { displayName }
+        email
+        customer {
+          displayName
+          firstName
+          lastName
+          defaultEmailAddress { emailAddress }
+        }
+        shippingAddress { country city }
 
         currentSubtotalPriceSet {
           shopMoney { amount currencyCode }
@@ -95,8 +108,121 @@ query OrdersForMatching($first: Int!, $query: String!) {
               sku
               quantity
               variantTitle
+              variant {
+                media(first: 1) {
+                  nodes {
+                    __typename
+                    ... on MediaImage {
+                      image { url }
+                    }
+                  }
+                }
+                product {
+                  featuredMedia {
+                    __typename
+                    ... on MediaImage {
+                      image { url }
+                    }
+                  }
+                }
+              }
               discountedTotalSet {
                 shopMoney { amount currencyCode }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
+`;
+
+const ORDERS_WITH_EXCHANGE_QUERY = /* GraphQL */ `
+query OrdersWithExchangeLineItems($first: Int!, $orderQuery: String) {
+  orders(first: $first, query: $orderQuery, sortKey: CREATED_AT, reverse: true) {
+    edges {
+      node {
+        id
+        name
+        agreements(first: 10) {
+          edges {
+            node {
+              __typename
+              ... on ReturnAgreement {
+                id
+                happenedAt
+                return {
+                  id
+                  name
+                  exchangeLineItems(first: 10) {
+                    edges {
+                      node {
+                        id
+                        quantity
+                        processableQuantity
+                        processedQuantity
+                        unprocessedQuantity
+                        lineItems {
+                          id
+                          name
+                          sku
+                          quantity
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
+`;
+
+const ORDER_EXCHANGE_QUERY = /* GraphQL */ `
+query OrderExchangeLineItems($orderId: ID!) {
+  order(id: $orderId) {
+    id
+    name
+    agreements(first: 20) {
+      edges {
+        node {
+          __typename
+          ... on ReturnAgreement {
+            id
+            happenedAt
+            return {
+              id
+              name
+              exchangeLineItems(first: 20) {
+                edges {
+                  node {
+                    id
+                    quantity
+                    processableQuantity
+                    processedQuantity
+                    unprocessedQuantity
+                    lineItems {
+                      id
+                      name
+                      sku
+                      quantity
+                      originalUnitPriceSet {
+                        shopMoney { amount currencyCode }
+                      }
+                      originalTotalSet {
+                        shopMoney { amount currencyCode }
+                      }
+                      discountedTotalSet {
+                        shopMoney { amount currencyCode }
+                      }
+                    }
+                  }
+                }
               }
             }
           }
@@ -110,18 +236,34 @@ query OrdersForMatching($first: Int!, $query: String!) {
 export async function POST(req: Request) {
   try {
     const body = await req.json().catch(() => ({}));
-    const first = Number(body?.first) > 0 ? Number(body.first) : 124;
-    
-    // Build query for start of current year (UTC)
-    const now = new Date();
-    const yearStart = new Date(Date.UTC(now.getUTCFullYear(), 0, 1, 0, 0, 0, 0));
-    const search = `created_at:>=${yearStart.toISOString()}`;
-    
-    console.log(`[SHOPIFY] Fetching up to ${first} orders from ${now.getUTCFullYear()}...`);
+    const requestedFirst = Number(body?.first) > 0 ? Number(body.first) : 60;
+    const first = Math.min(60, requestedFirst);
+    const orderQuery = typeof body?.orderQuery === "string" ? body.orderQuery : null;
+    const includeReturns = Boolean(body?.includeExchanges);
 
+    console.log(`[SHOPIFY] Fetching last ${first} orders...`);
+
+    if (body?.orderExchange) {
+      const orderId = body.orderId || "12560147906946";
+      const { data, errors } = await shopifyGraphQL<{ order: any }>(ORDER_EXCHANGE_QUERY, {
+        orderId,
+      });
+
+      if (errors?.length) {
+        console.error("[SHOPIFY] Order exchange GraphQL errors:", errors);
+        return NextResponse.json(
+          { error: "Shopify exchange GraphQL errors", details: errors },
+          { status: 500 }
+        );
+      }
+
+      return NextResponse.json({ success: true, order: data.order });
+    }
+
+    const graphQuery = includeReturns ? ORDERS_WITH_EXCHANGE_QUERY : ORDERS_QUERY;
     const { data, errors } = await shopifyGraphQL<{
       orders: { edges: { node: any }[] };
-    }>(QUERY, { first, query: search });
+    }>(graphQuery, { first, orderQuery });
 
     if (errors?.length) {
       console.error("[SHOPIFY] GraphQL errors:", errors);
@@ -131,20 +273,20 @@ export async function POST(req: Request) {
       );
     }
 
+    if (includeReturns) {
+      return NextResponse.json({
+        success: true,
+        orders: data?.orders?.edges ?? [],
+      });
+    }
+
     const edges = data?.orders?.edges ?? [];
     const lineItems: ShopifyLineItem[] = [];
-    let skippedBeforeJan1 = 0;
+    const seenLineItemIds = new Set<string>();
 
     for (const e of edges) {
       const o = e.node;
       
-      // Skip orders before Jan 1st (using UTC for consistent filtering)
-      const orderDateUtc = new Date(o.createdAt);
-      if (orderDateUtc < yearStart) {
-        skippedBeforeJan1++;
-        continue;
-      }
-
       // Extract order-level data
       const orderId = o.id;
       const orderName = o.name;
@@ -152,6 +294,12 @@ export async function POST(req: Request) {
       const displayFinancialStatus = o.displayFinancialStatus ?? null;
       const displayFulfillmentStatus = o.displayFulfillmentStatus ?? null;
       const customerName = o.customer?.displayName ?? null;
+      const customerFirstName = o.customer?.firstName ?? null;
+      const customerLastName = o.customer?.lastName ?? null;
+      const customerEmail =
+        o.customer?.defaultEmailAddress?.emailAddress ?? o.email ?? null;
+      const shippingCountry = o.shippingAddress?.country ?? null;
+      const shippingCity = o.shippingAddress?.city ?? null;
 
       // Extract order total (what customer actually pays)
       const orderTotal = o.currentTotalPriceSet?.shopMoney;
@@ -173,6 +321,9 @@ export async function POST(req: Request) {
       // Process each line item
       for (const liE of liEdges) {
         const li = liE.node;
+        if (li?.id) {
+          seenLineItemIds.add(li.id);
+        }
         const qty = Number(li.quantity ?? 0);
         const lineDiscountedAmount = li.discountedTotalSet?.shopMoney?.amount 
           ? parseFloat(li.discountedTotalSet.shopMoney.amount) 
@@ -191,6 +342,15 @@ export async function POST(req: Request) {
         const variantTitle = li.variantTitle ?? null;
         const productName = li.name ?? li.title ?? "Unknown Product";
         const sizeEU = extractEUSize(variantTitle) ?? extractEUSize(productName) ?? null;
+        let lineItemImageUrl = null;
+        const variantMediaNode = li?.variant?.media?.nodes?.find(
+          (node: any) => node?.__typename === "MediaImage"
+        );
+        if (variantMediaNode?.image?.url) {
+          lineItemImageUrl = variantMediaNode.image.url;
+        } else if (li?.variant?.product?.featuredMedia?.__typename === "MediaImage") {
+          lineItemImageUrl = li?.variant?.product?.featuredMedia?.image?.url ?? null;
+        }
 
         lineItems.push({
           shopifyOrderId: orderId,
@@ -199,23 +359,29 @@ export async function POST(req: Request) {
           createdAt,
           displayFinancialStatus,
           displayFulfillmentStatus,
+          customerEmail,
           customerName,
+          customerFirstName,
+          customerLastName,
+          shippingCountry,
+          shippingCity,
           lineItemId: li.id,
           title: productName,
           sku: li.sku ?? null,
           variantTitle,
           sizeEU,
+          lineItemImageUrl,
           quantity: qty,
           price: unitPrice,
           totalPrice,
           currencyCode: orderCurrency,
         });
       }
+
     }
 
     console.log(
-      `[SHOPIFY] Fetched ${lineItems.length} line items from ${edges.length} orders ` +
-      `(${skippedBeforeJan1} skipped before Jan 1)`
+      `[SHOPIFY] Fetched ${lineItems.length} line items from ${edges.length} orders`
     );
     
     return NextResponse.json({ 
@@ -223,7 +389,6 @@ export async function POST(req: Request) {
       metadata: {
         totalOrders: edges.length,
         lineItemsCount: lineItems.length,
-        skippedBeforeJan1,
       }
     });
   } catch (err: any) {

@@ -17,6 +17,7 @@ interface MonthlyMetricsRow {
   netAfterVariableCostsChf: number;
   marginPct: number;
   notes: string;
+  returnedStockValueChf: number;
 }
 
 const SAFE_YEAR_MIN = 2020;
@@ -54,6 +55,10 @@ export async function GET(req: NextRequest) {
         supplierCost: true,
         marginAmount: true,
         manualRevenueAdjustment: true,
+        returnReason: true,
+        returnFeePercent: true,
+        returnFeeAmountChf: true,
+        returnedStockValueChf: true,
       },
     });
 
@@ -79,8 +84,11 @@ export async function GET(req: NextRequest) {
       adsByMonth.set(monthKey, existing + toNumberSafe(record.amountChf, 0));
     }
 
-    const variableCostMap = new Map(
-      variableCosts.map((item) => [
+    const variableCostMap = new Map<
+      string,
+      { postageShippingCostChf: number; fulfillmentCostChf: number; notes: string }
+    >(
+      variableCosts.map((item: any) => [
         item.monthKey,
         {
           postageShippingCostChf: toNumberSafe(item.postageShippingCostChf, 0),
@@ -104,6 +112,7 @@ export async function GET(req: NextRequest) {
         netAfterVariableCostsChf: 0,
         marginPct: 0,
         notes: variableCostMap.get(monthKey)?.notes || "",
+        returnedStockValueChf: 0,
       });
     }
 
@@ -115,11 +124,21 @@ export async function GET(req: NextRequest) {
       const revenue = toNumberSafe(match.shopifyTotalPrice, 0);
       const adjustment = toNumberSafe(match.manualRevenueAdjustment, 0);
       const cost = toNumberSafe(match.supplierCost, 0);
-      const effectiveRevenue = revenue + adjustment;
-      if (effectiveRevenue <= 0) continue;
+      const returnFeePercent = toNumberSafe(match.returnFeePercent, 0);
+      const returnFeeAmount =
+        match.returnReason
+          ? toNumberSafe(
+              match.returnFeeAmountChf,
+              returnFeePercent > 0 ? (revenue * returnFeePercent) / 100 : 0
+            )
+          : 0;
+      const effectiveRevenue = match.returnReason ? returnFeeAmount : revenue + adjustment;
+      const returnedStockValue = toNumberSafe(match.returnedStockValueChf, 0);
+      if (!match.returnReason && effectiveRevenue <= 0) continue;
 
       row.salesChf += effectiveRevenue;
-      row.grossMarginChf += Math.max(effectiveRevenue - cost, 0);
+      row.grossMarginChf += effectiveRevenue - cost;
+      row.returnedStockValueChf += returnedStockValue;
     }
 
     const rows = Array.from(monthlyMap.values()).map((row) => {
@@ -135,6 +154,7 @@ export async function GET(req: NextRequest) {
         adsSpendChf: Number(row.adsSpendChf.toFixed(2)),
         postageShippingCostChf: Number(row.postageShippingCostChf.toFixed(2)),
         fulfillmentCostChf: Number(row.fulfillmentCostChf.toFixed(2)),
+        returnedStockValueChf: Number(row.returnedStockValueChf.toFixed(2)),
       };
     });
 
@@ -143,7 +163,8 @@ export async function GET(req: NextRequest) {
         row.salesChf > 0 ||
         row.adsSpendChf > 0 ||
         row.postageShippingCostChf > 0 ||
-        row.fulfillmentCostChf > 0
+        row.fulfillmentCostChf > 0 ||
+        row.returnedStockValueChf > 0
     );
 
     if (exportFormat === "csv") {
@@ -165,6 +186,7 @@ export async function GET(req: NextRequest) {
         totals.postageShippingCostChf += row.postageShippingCostChf;
         totals.fulfillmentCostChf += row.fulfillmentCostChf;
         totals.netAfterVariableCostsChf += row.netAfterVariableCostsChf;
+        totals.returnedStockValueChf += row.returnedStockValueChf;
         return totals;
       },
       {
@@ -174,6 +196,7 @@ export async function GET(req: NextRequest) {
         postageShippingCostChf: 0,
         fulfillmentCostChf: 0,
         netAfterVariableCostsChf: 0,
+        returnedStockValueChf: 0,
       }
     );
 
@@ -210,6 +233,7 @@ interface MonthlyCsvRow {
   postageShippingCostChf: number;
   fulfillmentCostChf: number;
   netAfterVariableCostsChf: number;
+  returnedStockValueChf: number;
   notes: string;
 }
 
@@ -223,6 +247,7 @@ function generateCSV(data: MonthlyMetricsRow[]): string {
     "postage_shipping_cost_chf",
     "fulfillment_cost_chf",
     "net_after_variable_costs_chf",
+    "returned_stock_value_chf",
     "notes",
   ];
 
@@ -235,6 +260,7 @@ function generateCSV(data: MonthlyMetricsRow[]): string {
     postageShippingCostChf: row.postageShippingCostChf,
     fulfillmentCostChf: row.fulfillmentCostChf,
     netAfterVariableCostsChf: row.netAfterVariableCostsChf,
+    returnedStockValueChf: row.returnedStockValueChf,
     notes: row.notes,
   }));
 

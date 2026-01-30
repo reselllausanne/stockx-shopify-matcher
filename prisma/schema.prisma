@@ -48,6 +48,14 @@ enum SupplierSource {
   @@schema("public")
 }
 
+enum ReturnReason {
+  STORE_CREDIT
+  EXCHANGE
+  DAMAGE
+
+  @@schema("public")
+}
+
 model OrderMatch {
   id                      String   @id @default(uuid())
   
@@ -61,6 +69,10 @@ model OrderMatch {
   shopifyTotalPrice       Decimal  @db.Decimal(10, 2)
   shopifyCurrencyCode     String   @default("CHF")
   shopifyCreatedAt        DateTime?
+  shopifyCustomerEmail    String?
+  shopifyCustomerFirstName String?
+  shopifyCustomerLastName  String?
+  shopifyLineItemImageUrl String?
   
   // Supplier identifiers (supports StockX, manual, other)
   supplierSource          SupplierSource @default(STOCKX)
@@ -83,7 +95,17 @@ model OrderMatch {
   stockxStatus              String
   stockxTrackingUrl         String?        // Tracking URL from shipping.shipment
   stockxAwb                 String?        // Air Waybill / tracking number (extracted from trackingUrl)
-  stockxEstimatedDelivery   DateTime?      // Estimated delivery date
+  stockxEstimatedDelivery   DateTime?      // Estimated delivery date (start)
+  stockxLatestEstimatedDelivery DateTime?  // Latest estimated delivery date (end)
+  stockxCheckoutType        String?
+  stockxStates              Json?
+  stockxStatesHash          String?
+  stockxStatesUpdatedAt     DateTime?
+
+  lastMilestoneKey          String?
+  lastMilestoneAt           DateTime?
+
+  stockxStatusEvents        StockXStatusEvent[]
   
   // Shopify metafields sync status
   shopifyMetafieldsSynced Boolean  @default(false)
@@ -93,6 +115,13 @@ model OrderMatch {
   supplierCost            Decimal  @db.Decimal(10, 2)
   marginAmount            Decimal  @db.Decimal(10, 2)
   marginPercent           Decimal  @db.Decimal(5, 2)
+
+  // Returns handling
+  returnReason            ReturnReason?
+  returnFeePercent        Decimal? @db.Decimal(5, 2)
+  returnFeeAmountChf      Decimal? @db.Decimal(10, 2)
+  returnAppliedAt         DateTime?
+  returnedStockValueChf   Decimal? @db.Decimal(10, 2)
   
   // Manual overrides
   manualCostOverride      Decimal? @db.Decimal(10, 2)
@@ -108,6 +137,51 @@ model OrderMatch {
   @@index([stockxOrderNumber])
   @@index([shopifyMetafieldsSynced])
   @@index([stockxPurchaseDate])
+  @@schema("public")
+}
+
+model StockXStatusEvent {
+  id             String   @id @default(uuid())
+  orderMatchId   String
+  milestoneKey   String
+  milestoneTitle String
+  statesHash     String
+  createdAt      DateTime @default(now())
+
+  // Email delivery state (for reliable + deduped notifications)
+  emailTo         String?
+  emailProvider   String?  // e.g. "postmark"
+  emailProviderId String?  // provider message id
+  emailedAt       DateTime?
+  emailError      String?
+
+  orderMatch     OrderMatch @relation(fields: [orderMatchId], references: [id], onDelete: Cascade)
+
+  @@unique([orderMatchId, milestoneKey])
+  @@index([orderMatchId])
+  @@schema("public")
+}
+
+model ShopifyFulfillmentRecord {
+  id              String   @id @default(uuid())
+  shopifyOrderId  String
+  shopifyOrderName String?
+  trackingNumber  String
+  trackingUrl     String?
+  trackingCompany String?
+  status          String?
+  sourceAwb       String?
+  swissPostLabelId  String?
+  swissPostLabelUrl String?
+  swissPostBarcode  String?
+  swissPostStatus   String?
+  swissPostResponse Json?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([shopifyOrderId])
+  @@index([trackingNumber])
+  @@unique([shopifyOrderId, trackingNumber])
   @@schema("public")
 }
 
@@ -139,6 +213,7 @@ model ExpenseCategory {
   createdAt DateTime      @default(now())
   
   expenses  PersonalExpense[]
+  recurringExpenses RecurringExpense[]
 
   @@schema("public")
 }
@@ -152,6 +227,7 @@ model PaymentAccount {
   createdAt DateTime @default(now())
   
   expenses  PersonalExpense[]
+  recurringExpenses RecurringExpense[]
 
   @@schema("public")
 }
@@ -200,5 +276,31 @@ model MonthlyVariableCosts {
   updatedAt             DateTime @updatedAt
   
   @@unique([year, month])
+  @@schema("public")
+}
+
+model RecurringExpense {
+  id           String   @id @default(uuid())
+  name         String
+  amount       Decimal  @db.Decimal(10, 2)
+  currencyCode String   @default("CHF")
+  categoryId   String
+  accountId    String
+  isBusiness   Boolean  @default(false)
+  dayOfMonth   Int      @default(1)
+  intervalMonths Int    @default(1) // 1=monthly, 3=quarterly, etc.
+  startDate    DateTime @default(now())
+  nextRunDate  DateTime
+  lastRunAt    DateTime?
+  active       Boolean  @default(true)
+  note         String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  category     ExpenseCategory @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  account      PaymentAccount  @relation(fields: [accountId], references: [id], onDelete: Restrict)
+
+  @@index([nextRunDate])
+  @@index([active])
   @@schema("public")
 }

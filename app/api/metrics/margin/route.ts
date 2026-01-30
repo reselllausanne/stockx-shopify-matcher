@@ -71,6 +71,10 @@ export async function GET(request: NextRequest) {
         stockxOrderNumber: true,
         manualRevenueAdjustment: true,
         manualCaseStatus: true,
+        returnReason: true,
+        returnFeePercent: true,
+        returnFeeAmountChf: true,
+        returnedStockValueChf: true,
       },
     });
 
@@ -108,10 +112,18 @@ export async function GET(request: NextRequest) {
       const revenue = toNumberSafe(match.shopifyTotalPrice, 0);
       const revenueAdjustment = toNumberSafe(match.manualRevenueAdjustment, 0);
       const cost = toNumberSafe(match.manualCostOverride, 0) || toNumberSafe(match.supplierCost, 0);
-      const effectiveRevenue = revenue + revenueAdjustment;
+      const returnFeePercent = toNumberSafe(match.returnFeePercent, 0);
+      const returnFeeAmount =
+        match.returnReason
+          ? toNumberSafe(
+              match.returnFeeAmountChf,
+              returnFeePercent > 0 ? (revenue * returnFeePercent) / 100 : 0
+            )
+          : 0;
+      const effectiveRevenue = match.returnReason ? returnFeeAmount : revenue + revenueAdjustment;
       
-      // Skip if fully refunded (effectiveRevenue <= 0)
-      if (effectiveRevenue <= 0) {
+      // Skip only if non-return revenue is zero/negative
+      if (!match.returnReason && effectiveRevenue <= 0) {
         console.log(`[METRICS] Skipping fully refunded order ${match.shopifyOrderName} (adjustment: ${revenueAdjustment})`);
         continue;
       }

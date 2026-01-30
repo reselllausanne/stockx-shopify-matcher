@@ -1,0 +1,1095 @@
+Delivered-To: reselllausanne@gmail.com
+Received: by 2002:a05:6f02:913:b0:115:18e7:9201 with SMTP id 19csp306881rcg;
+        Thu, 22 Jan 2026 00:07:20 -0800 (PST)
+X-Received: by 2002:ac8:5403:0:b0:501:4549:e62b with SMTP id d75a77b69052e-502dcabc2d0mr71163581cf.24.1769069239941;
+        Thu, 22 Jan 2026 00:07:19 -0800 (PST)
+ARC-Seal: i=1; a=rsa-sha256; t=1769069239; cv=none;
+        d=google.com; s=arc-20240605;
+        b=MRmilNtL9bfK39tFNSkITUGZ1uLa0nRXNB1TZ2iQqYGLB3tZqYEyk4doTiOSZmsxNK
+         9Ju/HdqVgzfl35Z0wNQbvCJrueuiUC7hz7ui0gKcWxYB2192rKio7s+4J+DFfCXmWFgd
+         skMpmG+K3vquioRTXGTXTWU5V9S2OlO5afOdvLLXSPsLovtQPINu0hoVgc39L3kITqng
+         5DIQlNrV+wmPLHU0qu+tlEtetDCuKMxhvwf+QqplSbO0vItvtkNVBCV7Acv6nOHurEPZ
+         +RwhRfjamoiKRxt8pjMdvNfIPwxzee8Svgie6Gv18Dwveek+A2LOPZAZr/Z/obifOodt
+         aw4g==
+ARC-Message-Signature: i=1; a=rsa-sha256; c=relaxed/relaxed; d=google.com; s=arc-20240605;
+        h=to:subject:message-id:mime-version:from:date
+         :content-transfer-encoding:dkim-signature:dkim-signature;
+        bh=3qG60sbKb0ai9qwobpXiL01XWJC5Yf7annow/E33q20=;
+        fh=S0VO0ZvVaZwkMweqRgnDz1pVpOb7xLWV46lFGiXu6oM=;
+        b=F7dPqC0UbaHCkY6BXhtyTGUjgQHN+cqD8ZHCH3rUaT3nQoMGIZdbJUV8CxhRBGYjAl
+         NsOBVL+x8aJT7P622C7UXP967buLjIX5fSyWl3SHYLFHP9M6m1SZkiOe/samfw7KNCvL
+         CC59u79oU12bcKk5ahhCJxB83FZCc9q6/o4PYHTIodlWVLICILoV5+/WNLhwO37F0NzI
+         qWyYbj6x2sm++FKy3isnKwZht00ZQnMbhv8O4rMo/Fv5rv8lMtns6I56FEZI489Qn0og
+         gAjesx9Mz/5t2jRbERkOq6Io8r6Y8YOM8NSPnx43CWo7X1owgKrxUA1xi/CKrUnyN6mu
+         iMsQ==;
+        dara=google.com
+ARC-Authentication-Results: i=1; mx.google.com;
+       dkim=pass header.i=@tmail.stockx.com header.s=s1 header.b=KFfXtANt;
+       dkim=pass header.i=@sendgrid.info header.s=smtpapi header.b=PKfT1Cap;
+       spf=pass (google.com: domain of bounces+7222194-08df-reselllausanne=gmail.com@em.tmail.stockx.com designates 149.72.150.168 as permitted sender) smtp.mailfrom="bounces+7222194-08df-reselllausanne=gmail.com@em.tmail.stockx.com";
+       dmarc=pass (p=REJECT sp=REJECT dis=NONE) header.from=stockx.com
+Return-Path: <bounces+7222194-08df-reselllausanne=gmail.com@em.tmail.stockx.com>
+Received: from o679.em.tmail.stockx.com (o679.em.tmail.stockx.com. [149.72.150.168])
+        by mx.google.com with ESMTPS id d75a77b69052e-502a2d18b99si230953621cf.167.2026.01.22.00.07.19
+        for <reselllausanne@gmail.com>
+        (version=TLS1_3 cipher=TLS_AES_128_GCM_SHA256 bits=128/128);
+        Thu, 22 Jan 2026 00:07:19 -0800 (PST)
+Received-SPF: pass (google.com: domain of bounces+7222194-08df-reselllausanne=gmail.com@em.tmail.stockx.com designates 149.72.150.168 as permitted sender) client-ip=149.72.150.168;
+Authentication-Results: mx.google.com;
+       dkim=pass header.i=@tmail.stockx.com header.s=s1 header.b=KFfXtANt;
+       dkim=pass header.i=@sendgrid.info header.s=smtpapi header.b=PKfT1Cap;
+       spf=pass (google.com: domain of bounces+7222194-08df-reselllausanne=gmail.com@em.tmail.stockx.com designates 149.72.150.168 as permitted sender) smtp.mailfrom="bounces+7222194-08df-reselllausanne=gmail.com@em.tmail.stockx.com";
+       dmarc=pass (p=REJECT sp=REJECT dis=NONE) header.from=stockx.com
+DKIM-Signature: v=1; a=rsa-sha256; c=relaxed/relaxed; d=tmail.stockx.com;
+	h=content-transfer-encoding:content-type:date:from:mime-version:subject:
+	to:cc:content-type:date:feedback-id:from:subject:to;
+	s=s1; bh=3qG60sbKb0ai9qwobpXiL01XWJC5Yf7annow/E33q20=;
+	b=KFfXtANt132slAt+vkocrNJOgQaeIkEl3/eErqnZhCvg6UCXhV0Ttbjx96t0phkf7fpv
+	R62l+qN6826Hr99OiH0xe79qCD+YNPCqN3ElincCkTRNweVyEZoPL29chCg1+uolDGG6gz
+	XaVNkONKUqNhTWZ8+SpyukZ0N6WOkK//IQUFPfX/uek9wYCt+3tMsvvUCW4diLhvSzkC3a
+	YCDXauwxl+h53mgEm2SZytMg16Z/fci3EvZSbhRVK9U5qs4MrLy4opOoJ6ZZ30eFfWrFzQ
+	lMvF1fTXMWs5TXZmpR0YpoM/yNOkoY8d5U/N7o4ivVaVG7rvkTpRNkEEduVpL18Q==
+DKIM-Signature: v=1; a=rsa-sha256; c=relaxed/relaxed; d=sendgrid.info;
+	h=content-transfer-encoding:content-type:date:from:mime-version:subject:
+	to:cc:content-type:date:feedback-id:from:subject:to;
+	s=smtpapi; bh=3qG60sbKb0ai9qwobpXiL01XWJC5Yf7annow/E33q20=;
+	b=PKfT1Cap0LuTdwwBSrIr3RL5yRXFoOF0zk17MPdX2lXJriVf5LYKLp8IqtknR1H6B52s
+	PW1M39yCq8rbezt40TzPVQ0vmclR/KEJo9MWsdJDOEKmeeqss8pWAgNt+O/Jz3PMAgrs5J
+	qbbN1cH6AumB2LOO/zw1dsrtM51moTvgc=
+Received: by recvd-79b85f45d-g6x55 with SMTP id recvd-79b85f45d-g6x55-1-6971DAB7-82
+	2026-01-22 08:07:19.646803216 +0000 UTC m=+3060064.204168770
+Received: from NzIyMjE5NA (unknown)
+	by geopod-ismtpd-6 (SG) with HTTP
+	id tQuGu8NdTi2jrXkBEAomDw
+	Thu, 22 Jan 2026 08:07:19.611 +0000 (UTC)
+Content-Transfer-Encoding: quoted-printable
+Content-Type: text/html; charset=iso-8859-1
+Date: Thu, 22 Jan 2026 08:07:19 +0000 (UTC)
+From: StockX <noreply@stockx.com>
+Mime-Version: 1.0
+Message-ID: <tQuGu8NdTi2jrXkBEAomDw@geopod-ismtpd-6>
+Subject: =?UTF-8?B?4pyFIENvbW1hbmRlIHbDqXJpZmnDqWU=?= et
+ =?UTF-8?B?ZXhww6lkacOpZcKgOg==?= Nike Air Max Plus University Blue Light
+ Crimson (Women's)
+X-SG-EID: 
+ =?us-ascii?Q?u001=2EtJkbFC2U6soaCLNt0YteR6Azr0Q+DFtxV0j7GgLT2eRhKxhgvYn5kDDtp?=
+ =?us-ascii?Q?4A1qBY675yFy7hxly8bcdQw9Nba0a46bNDdIy3N?=
+ =?us-ascii?Q?LKtfvIZSKhoge0uI9k5QSp5jB0iiwXJ1S0JfQj3?=
+ =?us-ascii?Q?WmHWL29xm=2FfEnN65+uPo=2F43SYuzjoJILGGSMqEf?=
+ =?us-ascii?Q?T1YTBXZ5GXK8QnErQ3dUc4WOvoAsXRfnF1MO9l5?=
+ =?us-ascii?Q?pXHKuSTRTqwr6E+N5zPwro=3D?=
+X-SG-ID: 
+ =?us-ascii?Q?u001=2ESdBcvi+Evd=2FbQef8eZF3BpSpIryk4HVbb8CB1YKP+aV+ZF4P1kWZyhy0r?=
+ =?us-ascii?Q?nuikCQyLW7eb3QUeX=2F4l=2F7BkhNcALXuI1+ftePb?=
+ =?us-ascii?Q?6xdzSQYEVJecuXyHMSsUazTI5Y7UBISussVBOv=2F?=
+ =?us-ascii?Q?TaqOZX2O8MEAbP1XyKhCaPZY1Skxjosd2jD4+JK?=
+ =?us-ascii?Q?bx95mWx5o4vkPgAtbEleIwLNZanlKE6i=2FOAsEVh?=
+ =?us-ascii?Q?xSH7POyo9130uliMDTLdiRFHbibrY=2F+a1VHh4ae?=
+ =?us-ascii?Q?Umdf7uNaDdq0XrtVOBGh3kidwo5I94wBvuFuGbl?=
+ =?us-ascii?Q?9SzttEWgP7VF8lqqqWxbmwAhXdojt?=
+To: reselllausanne@gmail.com
+X-Entity-ID: u001.j6G4gZoe+T6Och05fOOYpA==
+
+<!DOCTYPE html> <html> <head>  <title></title>  <style type=3D"text/css"><!=
+--{C}%3C!%2D%2D%7BC%7D%253C!%252D%252D%257BC%257D%25253C!%25252D%25252D%252=
+57BC%25257D%2525253C!%2525252D%2525252D%2525257BC%2525257D%252525253C!%2525=
+25252D%252525252D%252525257BC%252525257D%25252525253C!%25252525252D%2525252=
+5252D%25252525257BC%25252525257D%2525252525253C!%2525252525252D%25252525252=
+52D%2525252525257BC%2525252525257D%252525252525253C!%252525252525252D%25252=
+5252525252D%252525252525257BC%252525252525257D%25252525252525253C!%25252525=
+252525252D%25252525252525252D%25252525252525257BC%25252525252525257D%252525=
+2525252525253C!%2525252525252525252D%2525252525252525252D%25252525252525252=
+57BC%2525252525252525257D%252525252525252525253C!%252525252525252525252D%25=
+2525252525252525252D%252525252525252525257BC%252525252525252525257D%2525252=
+5252525252525253C!%25252525252525252525252D%25252525252525252525252D%252525=
+25252525252525257BC%25252525252525252525257D%2525252525252525252525253C!%25=
+25252525252525252525252D%2525252525252525252525252D%25252525252525252525252=
+57BC%2525252525252525252525257D%252525252525252525252525253C!%2525252525252=
+52525252525252D%252525252525252525252525252D%252525252525252525252525257BC%=
+252525252525252525252525257D%25252525252525252525252525253C!%25252525252525=
+252525252525252D%25252525252525252525252525252D%252525252525252525252525252=
+57BC%25252525252525252525252525257D%2525252525252525252525252525253C!%25252=
+52525252525252525252525252D%2525252525252525252525252525252D%25252525252525=
+25252525252525257BC%2525252525252525252525252525257D%2525252525252525252525=
+25252525253C!%252525252525252525252525252525252D%25252525252525252525252525=
+2525252D%252525252525252525252525252525257BC%252525252525252525252525252525=
+257D%25252525252525252525252525252525253C!%25252525252525252525252525252525=
+252D%25252525252525252525252525252525252D%252525252525252525252525252525252=
+57BC%25252525252525252525252525252525257D%252525252525252525252525252525252=
+5253C!%2525252525252525252525252525252525252D%25252525252525252525252525252=
+52525252D%2525252525252525252525252525252525257BC%2525252525252525252525252=
+525252525257D%252525252525252525252525252525252525253C!%2525252525252525252=
+52525252525252525252D%252525252525252525252525252525252525252D%252525252525=
+252525252525252525252525257BC%252525252525252525252525252525252525257D%2525=
+2525252525252525252525252525252525253C!%25252525252525252525252525252525252=
+525252D%25252525252525252525252525252525252525252D%252525252525252525252525=
+25252525252525257BC%25252525252525252525252525252525252525257D%252525252525=
+2525252525252525252525252525253C!%25252525252525252525252525252525252525252=
+52D%2525252525252525252525252525252525252525252D%25252525252525252525252525=
+25252525252525257BC%2525252525252525252525252525252525252525257D%2525252525=
+25252525252525252525252525252525253C!%2525252525252525252525252525252525252=
+52525252D%252525252525252525252525252525252525252525252D%252525252525252525=
+252525252525252525252525257BC%252525252525252525252525252525252525252525257=
+D%25252525252525252525252525252525252525252525253C!%25252525252525252525252=
+525252525252525252525252D%25252525252525252525252525252525252525252525252D%=
+25252525252525252525252525252525252525252525257BC%2525252525252525252525252=
+5252525252525252525257D%2525252525252525252525252525252525252525252525253C!=
+%2525252525252525252525252525252525252525252525252D%25252525252525252525252=
+52525252525252525252525252D%25252525252525252525252525252525252525252525252=
+57BC%2525252525252525252525252525252525252525252525257D%2525252525252525252=
+52525252525252525252525252525253C!%2525252525252525252525252525252525252525=
+25252525252D%252525252525252525252525252525252525252525252525252D%252525252=
+525252525252525252525252525252525252525257BC%252525252525252525252525252525=
+252525252525252525257D%2525252525252525252525252525252525252525252525252525=
+3C!%25252525252525252525252525252525252525252525252525252D%2525252525252525=
+2525252525252525252525252525252525252D%252525252525252525252525252525252525=
+25252525252525257BC%25252525252525252525252525252525252525252525252525257D%=
+2525252525252525252525252525252525252525252525252525253C!%25252525252525252=
+52525252525252525252525252525252525252D%25252525252525252525252525252525252=
+52525252525252525252D%25252525252525252525252525252525252525252525252525252=
+57BC%2525252525252525252525252525252525252525252525252525257D%2525252525252=
+52525252525252525252525252525252525252525253C!%2525252525252525252525252525=
+25252525252525252525252525252D%25252525252525252525252525252525252525252525=
+2525252525252D%252525252525252525252525252525252525252525252525252525257BC%=
+252525252525252525252525252525252525252525252525252525257D%2525252525252525=
+2525252525252525252525252525252525252525253C!%25252525252525252525252525252=
+525252525252525252525252525252D%2525252525252525252525252525252525252525252=
+5252525252525252D%252525252525252525252525252525252525252525252525252525252=
+57BC%25252525252525252525252525252525252525252525252525252525257D%252525252=
+5252525252525252525252525252525252525252525252525253C!%25252525252525252525=
+25252525252525252525252525252525252525252D%25252525252525252525252525252525=
+25252525252525252525252525252D%25252525252525252525252525252525252525252525=
+25252525252525257BC%2525252525252525252525252525252525252525252525252525252=
+525257D%252525252525252525252525252525252525252525252525252525252525253C!%2=
+52525252525252525252525252525252525252525252525252525252525252D%25252525252=
+5252525252525252525252525252525252525252525252525252D%252525252525252525252=
+525252525252525252525252525252525252525257BC%252525252525252525252525252525=
+252525252525252525252525252525257D%2525252525252525252525252525252525252525=
+2525252525252525252525253C!%25252525252525252525252525252525252525252525252=
+525252525252525252D%2525252525252525252525252525252525252525252525252525252=
+5252525252D%252525252525252525252525252525252525252525252525252525252525252=
+57BC%25252525252525252525252525252525252525252525252525252525252525257D%252=
+5252525252525252525252525252525252525252525252525252525252525253C!%25252525=
+25252525252525252525252525252525252525252525252525252525252D%25252525252525=
+25252525252525252525252525252525252525252525252525252D%25252525252525252525=
+25252525252525252525252525252525252525252525257BC%2525252525252525252525252=
+525252525252525252525252525252525252525257D%2525252525252525252525252525252=
+52525252525252525252525252525252525253C!%2525252525252525252525252525252525=
+25252525252525252525252525252525252D%25252525252525252525252525252525252525=
+2525252525252525252525252525252D%252525252525252525252525252525252525252525=
+252525252525252525252525257BC%252525252525252525252525252525252525252525252=
+525252525252525252525257D%2525252525252525252525252525252525252525252525252=
+5252525252525252525253C!%25252525252525252525252525252525252525252525252525=
+252525252525252525252D%2525252525252525252525252525252525252525252525252525=
+2525252525252525252D%252525252525252525252525252525252525252525252525252525=
+25252525252525257BC%2525252525252525252525252525252525252525252525252525252=
+5252525252525257D%252525252525252525252525252525252525252525252525252525252=
+5252525252525253C!%25252525252525252525252525252525252525252525252525252525=
+25252525252525252D%25252525252525252525252525252525252525252525252525252525=
+25252525252525252D%25252525252525252525252525252525252525252525252525252525=
+25252525252525257BC%2525252525252525252525252525252525252525252525252525252=
+525252525252525257D%2525252525252525252525252525252525252525252525252525252=
+52525252525252525253C!%2525252525252525252525252525252525252525252525252525=
+25252525252525252525252D%25252525252525252525252525252525252525252525252525=
+2525252525252525252525252D%252525252525252525252525252525252525252525252525=
+252525252525252525252525257BC%252525252525252525252525252525252525252525252=
+525252525252525252525252525257D%2525252525252525252525252525252525252525252=
+5252525252525252525252525252525253C!%25252525252525252525252525252525252525=
+252525252525252525252525252525252525252D%2525252525252525252525252525252525=
+2525252525252525252525252525252525252525252D%252525252525252525252525252525=
+25252525252525252525252525252525252525252525257BC%2525252525252525252525252=
+5252525252525252525252525252525252525252525252525257D%252525252525252525252=
+5252525252525252525252525252525252525252525252525252525253C!%25252525252525=
+25252525252525252525252525252525252525252525252525252525252525252D%25252525=
+25252525252525252525252525252525252525252525252525252525252525252525252D%25=
+252525252525252525252525252525252525252525252525252525252525252525252525252=
+57BC%2525252525252525252525252525252525252525252525252525252525252525252525=
+252525257D%2525252525252525252525252525252525252525252525252525252525252525=
+25252525252525253C!%2525252525252525252525252525252525252525252525252525252=
+52525252525252525252525252D%25252525252525252525252525252525252525252525252=
+5252525252525252525252525252525252DEVERGREEN%252525252525252525252525252525=
+2525252525252525252525252525252525252525252525252520STYLES...DO%25252525252=
+52525252525252525252525252525252525252525252525252525252525252525252520NOT%=
+252525252525252525252525252525252525252525252525252525252525252525252525252=
+5252520EDIT%252525252525252525252525252525252525252525252525252525252525252=
+525252525252525252D%2525252525252525252525252525252525252525252525252525252=
+52525252525252525252525252D%25252525252525252525252525252525252525252525252=
+5252525252525252525252525252525253E%252525252525252525252525252525252525252=
+5252525252525252525252525252525252525252D%252525252525252525252525252525252=
+5252525252525252525252525252525252525252525252D%252525252525252525252525252=
+5252525252525252525252525252525252525252525252525253E%252525252525252525252=
+52525252525252525252525252525252525252525252525252525252D%25252525252525252=
+525252525252525252525252525252525252525252525252525252525252D%2525252525252=
+5252525252525252525252525252525252525252525252525252525252525253E%252525252=
+525252525252525252525252525252525252525252525252525252525252525252D%2525252=
+52525252525252525252525252525252525252525252525252525252525252525252D%25252=
+5252525252525252525252525252525252525252525252525252525252525252525253E%252=
+5252525252525252525252525252525252525252525252525252525252525252525252D%252=
+5252525252525252525252525252525252525252525252525252525252525252525252D%252=
+5252525252525252525252525252525252525252525252525252525252525252525253E%252=
+52525252525252525252525252525252525252525252525252525252525252525252D%25252=
+525252525252525252525252525252525252525252525252525252525252525252D%2525252=
+5252525252525252525252525252525252525252525252525252525252525253E%252525252=
+525252525252525252525252525252525252525252525252525252525252D%2525252525252=
+52525252525252525252525252525252525252525252525252525252D%25252525252525252=
+5252525252525252525252525252525252525252525252525253E%252525252525252525252=
+5252525252525252525252525252525252525252525252D%252525252525252525252525252=
+5252525252525252525252525252525252525252D%252525252525252525252525252525252=
+5252525252525252525252525252525253E%252525252525252525252525252525252525252=
+52525252525252525252525252D%25252525252525252525252525252525252525252525252=
+525252525252525252D%2525252525252525252525252525252525252525252525252525252=
+5252525253E%252525252525252525252525252525252525252525252525252525252525252=
+D%252525252525252525252525252525252525252525252525252525252525252D%25252525=
+2525252525252525252525252525252525252525252525252525253E%252525252525252525=
+2525252525252525252525252525252525252525252D%252525252525252525252525252525=
+2525252525252525252525252525252D%252525252525252525252525252525252525252525=
+2525252525252525253E%252525252525252525252525252525252525252525252525252525=
+25252D%25252525252525252525252525252525252525252525252525252525252D%2525252=
+5252525252525252525252525252525252525252525252525253E%252525252525252525252=
+525252525252525252525252525252525252D%2525252525252525252525252525252525252=
+52525252525252525252D%25252525252525252525252525252525252525252525252525252=
+5253E%2525252525252525252525252525252525252525252525252525252D%252525252525=
+2525252525252525252525252525252525252525252D%252525252525252525252525252525=
+2525252525252525252525253E%252525252525252525252525252525252525252525252525=
+25252D%25252525252525252525252525252525252525252525252525252D%2525252525252=
+5252525252525252525252525252525252525253E%252525252525252525252525252525252=
+525252525252525252D%252525252525252525252525252525252525252525252525252D%25=
+2525252525252525252525252525252525252525252525253E%252525252525252525252525=
+2525252525252525252525252D%252525252525252525252525252525252525252525252525=
+2D%2525252525252525252525252525252525252525252525253E%252525252525252525252=
+52525252525252525252525252D%25252525252525252525252525252525252525252525252=
+D%25252525252525252525252525252525252525252525253E%252525252525252525252525=
+252525252525252525252D%252525252525252525252525252525252525252525252D%25252=
+5252525252525252525252525252525252525253E%252525252525252525252525252525252=
+5252525252D%2525252525252525252525252525252525252525252D%252525252525252525=
+2525252525252525252525253E%25252525252525252525252525252525252525252D%25252=
+525252525252525252525252525252525252D%2525252525252525252525252525252525252=
+5253E%252525252525252525252525252525252525252D%2525252525252525252525252525=
+25252525252D%252525252525252525252525252525252525253E%252525252525252525252=
+5252525252525252D%2525252525252525252525252525252525252D%252525252525252525=
+2525252525252525253E%25252525252525252525252525252525252D%25252525252525252=
+525252525252525252D%25252525252525252525252525252525253E%252525252525252525=
+252525252525252D%252525252525252525252525252525252D%25252525252525252525252=
+5252525253E%2525252525252525252525252525252D%252525252525252525252525252525=
+2D%2525252525252525252525252525253E%25252525252525252525252525252D%25252525=
+252525252525252525252D%25252525252525252525252525253E%252525252525252525252=
+525252D%252525252525252525252525252D%252525252525252525252525253E%252525252=
+5252525252525252D%2525252525252525252525252D%2525252525252525252525253E%252=
+52525252525252525252D%25252525252525252525252D%25252525252525252525253E%252=
+525252525252525252D%252525252525252525252D%252525252525252525253E%252525252=
+5252525252D%2525252525252525252D%2525252525252525253E%25252525252525252D%25=
+252525252525252D%25252525252525253E%252525252525252D%252525252525252D%25252=
+5252525253E%2525252525252D%2525252525252D%2525252525253E%25252525252D%25252=
+525252D%25252525253E%252525252D%252525252D%252525253E%2525252D%2525252D%252=
+5253E%25252D%25252D%25253E%252D%252D%253E%2D%2D%3E-->          div, p, a, l=
+i, td, body, ul {          -webkit-text-size-adjust: 100% !important;      =
+    -ms-text-size-adjust: 100% !important;          -webkit-font-smoothing:=
+ antialiased !important;          font-family: Arial, sans-serif !important=
+;          }          body {          padding: 0 !important;          width=
+: 100% !important;          min-width: 100% !important;          margin: 0 =
+auto !important;          margin-left: 0 !important;          margin-right:=
+ 0 !important;          padding: 0 !important;          -webkit-font-smooth=
+ing: antialiased !important;          font-family: Arial, sans-serif !impor=
+tant;          }          img {          border: 0 !important;          out=
+line: none !important;          display: block !important;          }      =
+    table {          border-collapse: collapse;          mso-table-lspace: =
+0;          mso-table-rspace: 0;          table-layout: fixed;          }  =
+        td {          border-collapse: collapse;          mso-line-height-r=
+ule: exactly;          }          a {          mso-line-height-rule: exactl=
+y;          text-decoration: none;          color: #006340;          }     =
+     a[x-apple-data-detectors] {          color: inherit !important;       =
+   text-decoration: none !important;          font-size: inherit !important=
+;          font-family: inherit !important;          font-weight: inherit !=
+important;          line-height: inherit !important;          }          sp=
+an {          mso-line-height-rule: exactly;          }          table[clas=
+s=3D'wrapper'] {          min-width: 100% !important;          width: 100% =
+!important;          }          .ExternalClass * {          line-height: 10=
+0%;          }          .ExternalClass, .ExternalClass p, .ExternalClass sp=
+an, .ExternalClass font, .ExternalClass td, .ExternalClass a, .ExternalClas=
+s div {          line-height: 100%;          }          u + .body .glist { =
+margin-left: 0 !important; }          @media only screen and (max-width: 64=
+0px) {          u + .body .glist { margin-left: 25px !important; }         =
+ } @-ms-viewport {width: device-width}          @media only screen and (max=
+-width:480px) {          td[class=3D"50"] {          width:50% !important; =
+         font-size: 15px !important;          line-height: 18px !important;=
+          }          td[class=3D"25"] {          width:25% !important;     =
+     font-size: 15px !important;          line-height: 18px !important;    =
+      }          td[class=3D"75"] {          width:75% !important;         =
+ font-size: 15px !important;          line-height: 18px !important;        =
+  }          td[class=3D"attributes"]{          padding-left: 0 !important;=
+          width: 100% !important;          }          td[class=3D'attribute=
+s'], li[class=3D'attributes'], ol[class=3D'attributes']{          font-size=
+: 15px !important;          line-height: 18px !important;          }       =
+   td[class=3D'bodyCta'] {             padding: 20px 20px 0 0!important;   =
+       width:100% !important;          height: 100% !important;          ta=
+ble-layout: auto !important;          visibility: visible !important;      =
+    overflow: visible !important;          max-height: none !important;    =
+      max-width: none !important;          min-width: 100% !important;     =
+     }          td[class=3D'button'] {          width:100% !important;     =
+     display: block !important;          text-align: center !important;    =
+      padding-left: 5px !important;          padding-right: 5px !important;=
+          margin: 0 auto !important;          }          a[class=3D'button'=
+] {          font-size: 18px !important;          line-height: 22px !import=
+ant;          }          table[class=3D"centerbutton"] {          display: =
+inline-block !important;          text-align: center !important;          }=
+          td[class=3D'chartBlock']{          padding-left: 56px !important;=
+          padding-right: 56px !important;          }          td[class=3D'c=
+opy'] {          width:100% !important;           font-size: 18px !importan=
+t;          line-height: 22px !important;          padding-top: 0px !import=
+ant;          padding-left: 0px !important;          padding-right: 0px !im=
+portant;          border: 0 !important;          }          td[class=3D'cop=
+yBlock']{          padding-left: 56px !important;          padding-right: 5=
+6px !important;          }          li[id=3D'datenschutz']{          paddin=
+g-left: 0 !important;          border-left: 0 !important;          }       =
+   td[class=3D'disclaimer'] {          font-size: 12px !important;         =
+ line-height: 14px !important;          padding-left: 15px !important;     =
+     padding-right: 15px !important;          }          img[class=3D'full_=
+width'] {          width: 100% !important;          height: auto !important=
+;          max-height: 100% !important;          max-width: 100% !important=
+;          display: block !important;          visibility: visible !importa=
+nt;          overflow: visible !important;          }          table[class=
+=3D'full_width'], td[class=3D'full_width'] {          width: 100% !importan=
+t;          height: 100% !important;          table-layout: auto !important=
+;          visibility: visible !important;          overflow: visible !impo=
+rtant;          max-height: none !important;          max-width: none !impo=
+rtant;          padding-left: 0 !important;          padding-right: 0 !impo=
+rtant;          min-width: 100% !important;          }         td[class=3D"=
+headerCell"]{          padding-left: 15px !important;          padding-righ=
+t: 15px !important;          width:100% !important;          height: 100% !=
+important;          table-layout: auto !important;          visibility: vis=
+ible !important;          overflow: visible !important;          max-height=
+: none !important;          max-width: none !important;          min-width:=
+ 100% !important;          }           td[class=3D'headerText']{          p=
+adding-right: 56px !important;          }          td[class=3D'headerLogo']=
+{          padding: 45px 30px 0 56px !important;          width: 25% !impor=
+tant;          height: auto !important;          }          img[class=3D'he=
+aderLogo']{          width: 15px !important;                       }       =
+   td[class=3D'height_15'] {          display: block !important;          h=
+eight: 15px!important;          }          td[class=3D'height_20'] {       =
+   display: block !important;          height: 20px!important;          }  =
+        td[class=3D'height_30'] {          display: block !important;      =
+    height: 30px!important;          }          td[class=3D'height_35'] {  =
+        display: block !important;          height: 35px!important;        =
+  }          td[class=3D'height_40'] {          display: block !important; =
+         height: 40px!important;          }          td[class=3D'height_50'=
+] {          display: block !important;          height: 50px!important;   =
+       }          .hide-on-mobile, div[class=3D'hide-on-mobile'], td[class=
+=3D'hide-on-mobile'], table[class=3D'hide-on-mobile'], table[class=3D'hide'=
+], td[class=3D'hide'], span[class=3D'hide'] {          display: none !impor=
+tant;          visibility: hidden !important;          overflow: hidden !im=
+portant;          font-size: 0px !important;          max-height: 0px !impo=
+rtant;          line-height: 0px !important;          mso-hide: all !import=
+ant;          width: 0 !important;          }          .hide-on-desktop, di=
+v[class=3D'hide-on-desktop'], td[class=3D'hide-on-desktop'], table[class=3D=
+'hide-on-desktop'], tr[class=3D"hide-on-desktop"], span[class=3D'hide-on-de=
+sktop']  {          display: block !important;          visibility: visible=
+ !important;          font-size: inherit !important;          max-height: n=
+one !important;          line-height: inherit !important;          overflow=
+: inherit !important;          }          span[class=3D'hide-on-desktop']  =
+{          display: inline !important;          visibility: visible !import=
+ant;          }         img[class=3D'icon']{          width: 30px !importan=
+t;          }          td[id=3D'letterHeader']{          font-size: 36px !i=
+mportant;          line-height: 36px !important          }          td[clas=
+s=3D'listtitle'], td[class=3D'listitem'] {          width:100% !important; =
+          font-size: 18px !important;          line-height: 22px !important=
+;          padding-left: 56px !important;          padding-right: 56px !imp=
+ortant;          }          td[id=3D'nobottompad']{          padding-bottom=
+: 0 !important;          }          td[class=3D'nopad'], td[id=3D'nopad'] {=
+          padding: 0 !important;          }          td[class=3D'orderStatu=
+sCopy']{          line-height: 30px !important;          font-size: 20px !i=
+mportant;          }          td[class=3D"padding_15"]{          padding: 1=
+5px !important;          }          td[class=3D"padding_15_notop"] {       =
+   padding: 0 15px 15px 15px !important;          }           td[class=3D"p=
+adding_15_sides_only"] {          padding: 0 15px !important;          }   =
+        td[id=3D'padding_45_bottom'] {          padding-bottom: 45px !impor=
+tant;               }          td[id=3D'price'] {          font-size: 85px =
+!important;          padding-top: 5px !important;          line-height: 75p=
+x !important;          }          td[id=3D'priceLeft'] {          font-size=
+: 75px !important;          padding-top: 5px !important;          line-heig=
+ht: 75px !important;          }          td[id=3D'priceRight'] {          f=
+ont-size: 75px !important;          padding-top: 5px !important;          l=
+ine-height: 75px !important;          }          td[class=3D'productBoxCta'=
+] {          padding-top: 30px !important;          width:100% !important; =
+         height: 100% !important;          table-layout: auto !important;  =
+        visibility: visible !important;          overflow: visible !importa=
+nt;          max-height: none !important;          max-width: none !importa=
+nt;          padding-left: 0 !important;          padding-right: 0 !importa=
+nt;          min-width: 100% !important;          }          td[class=3D"pr=
+oductBoxImage"] {          display: block !important;           width: 100%=
+!important;          height: auto !important;          text-align: center !=
+important;          table-layout: auto !important;          visibility: vis=
+ible !important;          overflow: visible !important;          max-height=
+: auto !important;          max-width: 100% !important;          min-width:=
+ 100% !important;          padding-left: 0 !important;          padding-rig=
+ht: 0 !important;          }          td[class=3D"productBoxInformation"] {=
+          display: block !important;          padding-top: 0px !important; =
+         width:100% !important;          }          td[class=3D"productName=
+"] {          padding-left: 0 !important;          padding-bottom: 15px !im=
+portant;          padding-top: 0 !important;          font-size: 22px !impo=
+rtant;          line-height: 26px !important;          }          td[class=
+=3D'subheaderCta'] {          padding-bottom: 25px !important;             =
+   width: 100% !important;          height: 100% !important;          table=
+-layout: auto !important;          visibility: visible !important;         =
+ overflow: visible !important;          max-height: none !important;       =
+   max-width: none !important;          min-width: 100% !important;        =
+  }          td[id=3D'subheaderText'] {          padding-left: 56px !import=
+ant;          padding-right: 56px !important;          }          td[class=
+=3D'subheaderTextLeft'] {          padding: 0 56px 0 56px !important;      =
+    }          td[class=3D'subheaderTextLeftCopy'] {          padding: 30px=
+ 0 0 0 !important;          font-size: 14px !important;          }         =
+ td[class=3D'subheaderTextLeftPrice'] {          font-size: 55px !important=
+;          padding: 0 0 15px 0 !important;          line-height: 55px !impo=
+rtant;          }           td[id=3D'subheaderTextPostPurchase'] {         =
+ padding-left: 56px !important;          padding-right: 56px !important;   =
+       display: block !important;          }          td[class=3D'subheader=
+TextRight'] {          padding: 0 56px 0 56px !important;          }       =
+   td[class=3D'subheaderTextRightCopy'] {          padding: 0 !important;  =
+        font-size: 14px !important;          }          td[class=3D'subhead=
+erTextRightPrice'] {          font-size: 55px !important;          padding:=
+ 0 0 30px 0 !important;          line-height: 55px !important;          }  =
+        td[class=3D"title"] {          width:100% !important;              =
+}          img[class=3D"title"] {          width:100% !important;          =
+height:auto !important;          max-width: 100% !important;          displ=
+ay: block !important;          }          td[id=3D"topcopy"] {          pad=
+ding-top: 15px !important;          }          td[id=3D"topcopy30"] {      =
+    padding-top: 30px !important;          }          td[id=3D'wrapper'] { =
+         padding: 0 !important;          width:100% !important;          he=
+ight:100% !important;          min-width: 100% !important;          }      =
+                 td[class=3D'order_banner_left'] {           width: 100% !i=
+mportant;              display: block !important;             padding-right=
+: 0px !important;             padding-bottom: 10px !important;             =
+font-size: 16px !important;         }         td[class=3D'order_banner_righ=
+t'] {           width: 100% !important;              display: block !import=
+ant;         } /*PER EMAIL MOBILE ADJUSTMENTS GO HERE*/                   }=
+  </style> </head> <body bgcolor=3D"#eae8e3" style=3D"margin-top: 0px; marg=
+in-bottom: 0px; padding-top: 0px; padding-bottom: 0px; width: 100%; text-si=
+ze-adjust: 100%; background-color: rgb(234, 232, 227); color: rgb(0, 0, 0);=
+ font-family: Arial, &quot;Helvetica Neue&quot;, Helvetica, sans-serif; -we=
+bkit-font-smoothing: antialiased; min-width: 100%; cursor: auto;"> <div sty=
+le=3D"background-color: #eae8e3;"> </div>  <div>                           =
+                                            </div>  <table align=3D"center"=
+ bgcolor=3D"#eae8e3" border=3D"0" cellpadding=3D"0" cellspacing=3D"0" class=
+=3D"wrapper" style=3D"border-collapse: collapse; margin: 0px auto; width: 9=
+9.0268%;">  <tbody>   <tr>    <td align=3D"center" bgcolor=3D"#eae8e3" clas=
+s=3D"full_width" style=3D"text-align: center; width: 100%;" valign=3D"top">=
+    <table align=3D"center" border=3D"0" cellpadding=3D"0" cellspacing=3D"0=
+" class=3D"full_width" style=3D"border-collapse: collapse; margin: 0 auto; =
+table-layout: fixed; max-width: 100%;" width=3D"640">     <tbody>      <tr>=
+       <td align=3D"center" class=3D"full_width" style=3D"border-collapse: =
+collapse; padding: 0px;" valign=3D"top" width=3D"640">       <table align=
+=3D"center" border=3D"0" cellpadding=3D"0" cellspacing=3D"0" class=3D"full_=
+width" style=3D"border-collapse: collapse;" width=3D"640">        <tbody>  =
+       <tr>          <td>          <table align=3D"center" border=3D"0" cel=
+lpadding=3D"0" cellspacing=3D"0" class=3D"hide" style=3D"mso-hide: all;" wi=
+dth=3D"640">           <tbody>            <tr>             <td align=3D"cen=
+ter" style=3D"font-family: Arial, Helvetica Neue, Helvetica, sans-serif; co=
+lor: #a0a0a0; font-size: 0px; margin: 0px; line-height: 0px; mso-hide: all;=
+" width=3D"640">Nous avons v=E9rifi=E9 ta commande et te l'avons exp=E9di=
+=E9e.<br />                                                                =
+                                                                           =
+                                                                           =
+                                                                           =
+                                                                           =
+                                                                           =
+                                  </td>            </tr>           </tbody>=
+          </table>          </td>         </tr>         <tr>          <td c=
+lass=3D"full_width" id=3D"wrapper" width=3D"100%">          <table align=3D=
+"center" border=3D"0" cellpadding=3D"0" cellspacing=3D"0" class=3D"full_wid=
+th" style=3D"border-collapse: collapse; min-width: 100%;" width=3D"100%">  =
+         <tbody>            <tr>             <td bgcolor=3D"#D4D1C7" class=
+=3D"full_width" width=3D"100%">             <table align=3D"center" border=
+=3D"0" cellpadding=3D"0" cellspacing=3D"0" class=3D"full_width" style=3D"bo=
+rder-collapse: collapse;" width=3D"100%">              <tbody>             =
+  <tr>                <td style=3D"line-height: 0; font-size: 0; display: b=
+lock;" width=3D"100%">                <table border=3D"0" cellpadding=3D"0"=
+ cellspacing=3D"0" width=3D"100%">                 <tbody>                 =
+ <tr>                   <td align=3D"center" class=3D"full_width" colspan=
+=3D"2" style=3D"min-height: 250px;" valign=3D"top" width=3D"640">          =
+         <table border=3D"0" cellpadding=3D"0" cellspacing=3D"0" class=3D"f=
+ull_width" style=3D"border-collapse: collapse; margin: 0; min-height: 250px=
+;" width=3D"640">                    <tbody>                     <tr>      =
+                <td align=3D"center" class=3D"full_width" id=3D"bgimageGree=
+n" style=3D"background-image: url('https://images.stockx.com/images/Nike-Ai=
+r-Max-Plus-University-Blue-Light-Crimson-Womens-Product.jpg?mask-bg=3D00634=
+0&mask=3Dhttp%3A%2F%2Fstockx-assets.imgix.net%2Femails%2Fhackathon2022%2Fov=
+erlay%2Fgrad_alone.png&duotone-alpha=3D100&fill=3Dsolid&crop=3Dmiddle&fit=
+=3Dcrop&w=3D640&h=3D350&mark-pad=3D0&mark64=3DaHR0cDovL3N0b2NreC1hc3NldHMua=
+W1naXgubmV0L2VtYWlscy9oYWNrYXRob24yMDIyL292ZXJsYXkvdjNfZ3JheV9ub3NwYWNlLnBu=
+Zw&mark-align=3Dtop%2C%20left&duotone=3D006340%2C99c1b3&con=3D75&mark-scale=
+=3D33'); background-repeat: no-repeat; background-color: #006340; backgroun=
+d-position: middle; background-size: inherit; height: 320px;" valign=3D"top=
+" width=3D"640">                      <table border=3D"0" cellpadding=3D"0"=
+ cellspacing=3D"0" class=3D"full_width" style=3D"border-collapse: collapse;=
+ margin: 0;" width=3D"640">                       <tbody>                  =
+      <tr>                         <td align=3D"left" class=3D"headerLogo" =
+style=3D"border-collapse: collapse; height: 250px; padding: 45px 15px 0 105=
+px;" valign=3D"top"><a href=3D"https://us1.wizrocketmail.net/r?e=3DK2xrGR97=
+BX96bGt9DSZleQIEBAJmbmo1KSQlNUxOAgRlb2d4Zm9iN3JwQlEkKTskOQUxJF1bWFEXGi56Kz8=
+kLlxETXo4LjstPjkzP1tfXxQUNjsoPD82N0kSRk4lMQ0iM3hoaQMHAABmbmR%2FYWoNeQICBwRm=
+aGBpe3glMUBbbkQ%2BLD0%2FdWBwPEhCWmszPzQqIjYmaU8%3D&r=3Dhttps%3A%2F%2Fwww.st=
+ockx.com%3Futm_source%3Dclevertap%26utm_medium%3Demail%26utm_campaign%3Db05=
+.3_shippedToBuyer_txn&c=3D712510944&token=3DGlVTBQtQBAINBAU%3D&try=3D1&link=
+_index=3D130&$follow_redirect=3Dtrue" data-link-index=3D"130"><img alt=3D"S=
+tockX" class=3D"headerLogo" height=3D"auto" src=3D"https://stockx-assets.im=
+gix.net/emails/logos/StockX_Vertical_Gray_Digital_RGB.png?w=3D26&dpr=3D2" s=
+tyle=3D"display: block; border: none; font-family: Arial, Helvetica Neue, H=
+elvetica, sans-serif; color: #d4d1c7; text-transform: none; font-size: 15px=
+; letter-spacing: 1px; line-height: 25px;" width=3D"25" /></a></td>        =
+                 <td align=3D"left" class=3D"headerCell" style=3D"padding: =
+40px 55px 40px 0px;" valign=3D"top" width=3D"50%">                         =
+<table border=3D"0" cellpadding=3D"0" cellspacing=3D"0" style=3D"border-col=
+lapse: collapse; margin: 0;">                          <tbody>             =
+              <tr>                            <td align=3D"left" class=3D"i=
+con" style=3D"font-family: Arial, Helvetica Neue, Helvetica, sans-serif; co=
+lor: #d4d1c7; text-decoration: none; text-align: left; padding-bottom: 10px=
+;"><a href=3D"https://us1.wizrocketmail.net/r?e=3DK2xrGR97BX96bGt9DSZleQIEB=
+AJmbmo1KSQlNUxOAgRlb2d4Zm9iN3JwQlEkKTskOQUxJF1bWFEXGi56Kz8kLlxETXo4LjstPjkz=
+P1tfXxQUNjsoPD82N0kSRk4lMQ0iM3hoaQMHAABmbmR%2FYWoNeQICBwRmaGBpe3glMUBbbkQ%2=
+BLD0%2FdWBwPEhCWmszPzQqIjYmaU8%3D&r=3Dhttps%3A%2F%2Fstockx.com%2Fbuying%2F1=
+4836503509588877626%2F%3Futm_source%3Dclevertap%26utm_medium%3Demail%26utm_=
+campaign%3Db05.3_shippedToBuyer_txn&c=3D712510944&token=3DGlVWBwtSBQUEAwM%3=
+D&try=3D1&link_index=3D131&$follow_redirect=3Dtrue" data-link-index=3D"131"=
+><img alt=3D"" class=3D"icon" height=3D"auto" src=3D"https://stockx-assets.=
+imgix.net/emails/transactional/buyer-icons/b051ordered-icon2.png?dpr=3D2&w=
+=3D100&fill=3Dsolid&fill-color=3D000000&fit=3Dfill&border=3D1%2C000000&bord=
+er-radius=3D50%2C50%2C50%2C50&border-radius-inner=3D50%2C50%2C50%2C50" styl=
+e=3D"display: block; border: none; font-family: Arial, Helvetica Neue, Helv=
+etica, sans-serif; color: #000000; text-transform: none; font-size: 15px; l=
+etter-spacing: 1px; line-height: 25px;" width=3D"40" /></a></td>           =
+                 <td align=3D"left" class=3D"orderStatusCopy" style=3D"font=
+-family: 'Book Antiqua', 'Palatino Linotype', 'Palatino LT STD', Georgia, s=
+erif; font-size: 22px; color: #000000; text-decoration: none; text-align: l=
+eft; line-height: 26px; font-weight: 400; padding-left: 15px; padding-botto=
+m: 10px; vertical-align: middle;">Commande</td>                           <=
+/tr>                           <tr>                            <td align=3D=
+"left" class=3D"icon" style=3D"font-family: Arial, Helvetica Neue, Helvetic=
+a, sans-serif; color: #d4d1c7; text-decoration: none; text-align: left; pad=
+ding-bottom: 10px;"><a href=3D"https://us1.wizrocketmail.net/r?e=3DK2xrGR97=
+BX96bGt9DSZleQIEBAJmbmo1KSQlNUxOAgRlb2d4Zm9iN3JwQlEkKTskOQUxJF1bWFEXGi56Kz8=
+kLlxETXo4LjstPjkzP1tfXxQUNjsoPD82N0kSRk4lMQ0iM3hoaQMHAABmbmR%2FYWoNeQICBwRm=
+aGBpe3glMUBbbkQ%2BLD0%2FdWBwPEhCWmszPzQqIjYmaU8%3D&r=3Dhttps%3A%2F%2Fstockx=
+.com%2Fbuying%2F14836503509588877626%2F%3Futm_source%3Dclevertap%26utm_medi=
+um%3Demail%26utm_campaign%3Db05.3_shippedToBuyer_txn&c=3D712510944&token=3D=
+GlVWBwtSBQUEAwM%3D&try=3D1&link_index=3D132&$follow_redirect=3Dtrue" data-l=
+ink-index=3D"132"><img alt=3D"" class=3D"icon" height=3D"auto" src=3D"https=
+://stockx-assets.imgix.net/emails/transactional/buyer-icons/b052shippedToSt=
+ockX-icon2.png?dpr=3D2&w=3D100&fill=3Dsolid&fill-color=3D000000&fit=3Dfill&=
+border=3D1%2C000000&border-radius=3D50%2C50%2C50%2C50&border-radius-inner=
+=3D50%2C50%2C50%2C50" style=3D"display: block; border: none; font-family: A=
+rial, Helvetica Neue, Helvetica, sans-serif; color: #d4d1c7; text-transform=
+: none; font-size: 15px; letter-spacing: 1px; line-height: 25px;" width=3D"=
+40" /></a></td>                            <td align=3D"right" class=3D"ord=
+erStatusCopy" style=3D"font-family: 'Book Antiqua', 'Palatino Linotype', 'P=
+alatino LT STD', Georgia, serif; font-size: 22px; color: #000000; text-deco=
+ration: none; text-align: left; line-height: 26px; font-weight: 400; paddin=
+g-left: 15px; padding-bottom: 10px; vertical-align: middle;">Exp=E9di=E9e =
+=E0 StockX=A0</td>                           </tr>                         =
+  <tr>                            <td align=3D"left" class=3D"icon" style=
+=3D"font-family: Arial, Helvetica Neue, Helvetica, sans-serif; color: #d4d1=
+c7; text-decoration: none; text-align: left; padding-bottom: 10px;"><a href=
+=3D"https://us1.wizrocketmail.net/r?e=3DK2xrGR97BX96bGt9DSZleQIEBAJmbmo1KSQ=
+lNUxOAgRlb2d4Zm9iN3JwQlEkKTskOQUxJF1bWFEXGi56Kz8kLlxETXo4LjstPjkzP1tfXxQUNj=
+soPD82N0kSRk4lMQ0iM3hoaQMHAABmbmR%2FYWoNeQICBwRmaGBpe3glMUBbbkQ%2BLD0%2FdWB=
+wPEhCWmszPzQqIjYmaU8%3D&r=3Dhttps%3A%2F%2Fstockx.com%2Fbuying%2F14836503509=
+588877626%2F%3Futm_source%3Dclevertap%26utm_medium%3Demail%26utm_campaign%3=
+Db05.3_shippedToBuyer_txn&c=3D712510944&token=3DGlVWBwtSBQUEAwM%3D&try=3D1&=
+link_index=3D133&$follow_redirect=3Dtrue" data-link-index=3D"133"><img alt=
+=3D"" class=3D"icon" height=3D"auto" src=3D"https://stockx-assets.imgix.net=
+/emails/transactional/buyer-icons/ArrivedAtStockX_bid.png?dpr=3D2&w=3D100&f=
+ill=3Dsolid&fill-color=3D000000&fit=3Dfill&border=3D1%2C000000&border-radiu=
+s=3D50%2C50%2C50%2C50&border-radius-inner=3D50%2C50%2C50%2C50" style=3D"dis=
+play: block; border: none; font-family: Arial, Helvetica Neue, Helvetica, s=
+ans-serif; color: #000000; text-transform: none; font-size: 15px; letter-sp=
+acing: 1px; line-height: 25px;" width=3D"40" /></a></td>                   =
+         <td align=3D"left" class=3D"orderStatusCopy" style=3D"font-family:=
+ 'Book Antiqua', 'Palatino Linotype', 'Palatino LT STD', Georgia, serif; fo=
+nt-size: 22px; color: #000000; text-decoration: none; text-align: left; lin=
+e-height: 26px; font-weight: 400; padding-left: 15px; padding-bottom: 10px;=
+ vertical-align: middle;">Arriv=E9e chez StockX</td>                       =
+    </tr>                           <tr>                            <td ali=
+gn=3D"left" class=3D"icon" style=3D"font-family: Arial, Helvetica Neue, Hel=
+vetica, sans-serif; color: #d4d1c7; text-decoration: none; text-align: left=
+; padding-bottom: 10px;"><a href=3D"https://us1.wizrocketmail.net/r?e=3DK2x=
+rGR97BX96bGt9DSZleQIEBAJmbmo1KSQlNUxOAgRlb2d4Zm9iN3JwQlEkKTskOQUxJF1bWFEXGi=
+56Kz8kLlxETXo4LjstPjkzP1tfXxQUNjsoPD82N0kSRk4lMQ0iM3hoaQMHAABmbmR%2FYWoNeQI=
+CBwRmaGBpe3glMUBbbkQ%2BLD0%2FdWBwPEhCWmszPzQqIjYmaU8%3D&r=3Dhttps%3A%2F%2Fs=
+tockx.com%2Fbuying%2F14836503509588877626%2F%3Futm_source%3Dclevertap%26utm=
+_medium%3Demail%26utm_campaign%3Db05.3_shippedToBuyer_txn&c=3D712510944&tok=
+en=3DGlVWBwtSBQUEAwM%3D&try=3D1&link_index=3D134&$follow_redirect=3Dtrue" d=
+ata-link-index=3D"134"><img alt=3D"" class=3D"icon" height=3D"auto" src=3D"=
+https://stockx-assets.imgix.net/emails/transactional/buyer-icons/b053shippe=
+dToBuyer3.png?dpr=3D2&w=3D100&fill=3Dsolid&fill-color=3DD4D1C7&fit=3Dfill&b=
+order=3D1%2CD4D1C7&border-radius=3D50%2C50%2C50%2C50&border-radius-inner=3D=
+50%2C50%2C50%2C50" style=3D"display: block; border: none; font-family: Aria=
+l, Helvetica Neue, Helvetica, sans-serif; color: #000000; text-transform: n=
+one; font-size: 15px; letter-spacing: 1px; line-height: 25px;" width=3D"40"=
+ /></a></td>                            <td align=3D"left" class=3D"orderSt=
+atusCopy" style=3D"font-family: 'Book Antiqua', 'Palatino Linotype', 'Palat=
+ino LT STD', Georgia, serif; font-size: 22px; color: #d4d1c7; text-decorati=
+on: none; text-align: left; line-height: 26px; font-weight: 400; padding-le=
+ft: 15px; vertical-align: middle; padding-bottom: 10px;">V=E9rifi=E9e + exp=
+=E9di=E9e</td>                           </tr>                           <t=
+r>                            <td align=3D"left" class=3D"icon" style=3D"fo=
+nt-family: Arial, Helvetica Neue, Helvetica, sans-serif; color: #d4d1c7; te=
+xt-decoration: none; text-align: left; padding-bottom: 10px;"><a href=3D"ht=
+tps://us1.wizrocketmail.net/r?e=3DK2xrGR97BX96bGt9DSZleQIEBAJmbmo1KSQlNUxOA=
+gRlb2d4Zm9iN3JwQlEkKTskOQUxJF1bWFEXGi56Kz8kLlxETXo4LjstPjkzP1tfXxQUNjsoPD82=
+N0kSRk4lMQ0iM3hoaQMHAABmbmR%2FYWoNeQICBwRmaGBpe3glMUBbbkQ%2BLD0%2FdWBwPEhCW=
+mszPzQqIjYmaU8%3D&r=3Dhttps%3A%2F%2Fstockx.com%2Fbuying%2F14836503509588877=
+626%2F%3Futm_source%3Dclevertap%26utm_medium%3Demail%26utm_campaign%3Db05.3=
+_shippedToBuyer_txn&c=3D712510944&token=3DGlVWBwtSBQUEAwM%3D&try=3D1&link_i=
+ndex=3D135&$follow_redirect=3Dtrue" data-link-index=3D"135"><img alt=3D"" c=
+lass=3D"icon" height=3D"auto" src=3D"https://stockx-assets.imgix.net/emails=
+/transactional/buyer-icons/b054delivered-icon_v3.png?dpr=3D2&w=3D100&fill=
+=3Dsolid&fill-color=3D000000&fit=3Dfill&border=3D1%2C000000&border-radius=
+=3D50%2C50%2C50%2C50&border-radius-inner=3D50%2C50%2C50%2C50" style=3D"disp=
+lay: block; border: none; font-family: Arial, Helvetica Neue, Helvetica, sa=
+ns-serif; color: #000000; text-transform: none; font-size: 15px; letter-spa=
+cing: 1px; line-height: 25px;" width=3D"40" /></a></td>                    =
+        <td align=3D"left" class=3D"orderStatusCopy" style=3D"font-family: =
+'Book Antiqua', 'Palatino Linotype', 'Palatino LT STD', Georgia, serif; fon=
+t-size: 22px; color: #000000; text-decoration: none; text-align: left; line=
+-height: 26px; font-weight: 400; padding-left: 15px; vertical-align: middle=
+; padding-bottom: 10px;">Livraison=A0</td>                           </tr> =
+                         </tbody>                         </table>         =
+                </td>                        </tr>                       </=
+tbody>                      </table>                      </td>            =
+         </tr>                    </tbody>                   </table>      =
+             </td>                  </tr>                  <tr>            =
+       <td align=3D"center" bgcolor=3D"#D4D1C7" class=3D"full_width" valign=
+=3D"top" width=3D"640">                   <table border=3D"0" cellpadding=
+=3D"0" cellspacing=3D"0" class=3D"full_width" style=3D"border-collapse: col=
+lapse; margin: 0;" width=3D"640">                    <tbody>               =
+      <tr>                      <td align=3D"center" bgcolor=3D"#D4D1C7" cl=
+ass=3D"hide" valign=3D"top" width=3D"320">                      <table bord=
+er=3D"0" cellpadding=3D"0" cellspacing=3D"0" class=3D"hide" style=3D"border=
+-collapse: collapse; margin: 0;" width=3D"320">                       <tbod=
+y>                        <tr>                         <td align=3D"left" c=
+lass=3D"hide" height=3D"100%" style=3D"border-collapse: collapse; padding: =
+45px 175px 45px 45px;" valign=3D"top"><a href=3D"https://us1.wizrocketmail.=
+net/r?e=3DK2xrGR97BX96bGt9DSZleQIEBAJmbmo1KSQlNUxOAgRlb2d4Zm9iN3JwQlEkKTskO=
+QUxJF1bWFEXGi56Kz8kLlxETXo4LjstPjkzP1tfXxQUNjsoPD82N0kSRk4lMQ0iM3hoaQMHAABm=
+bmR%2FYWoNeQICBwRmaGBpe3glMUBbbkQ%2BLD0%2FdWBwPEhCWmszPzQqIjYmaU8%3D&r=3Dht=
+tps%3A%2F%2Fwww.stockx.com%3Futm_source%3Dclevertap%26utm_medium%3Demail%26=
+utm_campaign%3Db05.3_shippedToBuyer_txn&c=3D712510944&token=3DGlVTBQtQBAINB=
+AU%3D&try=3D1&link_index=3D136&$follow_redirect=3Dtrue" data-link-index=3D"=
+136"><img alt=3D"StockX" class=3D"hide" height=3D"auto" src=3D"https://stoc=
+kx-assets.imgix.net/emails/logos/X_Black_Digital_RGB.png?w=3D100&dpr=3D2" s=
+tyle=3D"display: block; border: none; font-family: Arial, Helvetica Neue, H=
+elvetica, sans-serif; color: #000000; text-transform: none; font-size: 15px=
+; letter-spacing: 1px; line-height: 25px;" width=3D"100" /></a></td>       =
+                 </tr>                       </tbody>                      =
+</table>                      </td>                      <td align=3D"cente=
+r" bgcolor=3D"#D4D1C7" class=3D"full_width" valign=3D"top" width=3D"320">  =
+                    <table border=3D"0" cellpadding=3D"0" cellspacing=3D"0"=
+ class=3D"full_width" style=3D"border-collapse: collapse; margin: 0;" width=
+=3D"320">                       <tbody>                        <tr>        =
+                 <td align=3D"left" bgcolor=3D"#D4D1C7" class=3D"full_width=
+" valign=3D"top" width=3D"320">                         <table border=3D"0"=
+ cellpadding=3D"0" cellspacing=3D"0" style=3D"border-collapse: collapse; ma=
+rgin: 0;">                          <tbody>                           <tr> =
+                           <td align=3D"center" class=3D"full_width" id=3D"=
+subheaderTextPostPurchase" valign=3D"top" width=3D"320">                   =
+         <table border=3D"0" cellpadding=3D"0" cellspacing=3D"0" style=3D"b=
+order-collapse: collapse; margin: 0;">                             <tbody> =
+                             <tr>                               <td align=
+=3D"left" style=3D"font-family: 'Book Antiqua', 'Palatino Linotype', 'Palat=
+ino LT STD', Georgia, serif; font-size: 28px; color: #006340; text-decorati=
+on: none; text-align: left; line-height: 32px; font-weight: 500; padding: 4=
+0px 40px 0 0;">Commande v=E9rifi=E9e et exp=E9di=E9e=A0</td>               =
+               </tr>                              <tr>                     =
+          <td align=3D"left" style=3D"font-family: Arial, Helvetica Neue, H=
+elvetica, sans-serif; font-size: 16px; color: #000005; text-decoration: non=
+e; text-align: left; line-height: 24px; font-weight: 600;">Arriv=E9e estim=
+=E9e=A0:</td>                              </tr>                           =
+   <tr>                               <td align=3D"left" style=3D"font-fami=
+ly: Arial, Helvetica Neue, Helvetica, sans-serif; font-size: 16px; color: #=
+000005; text-decoration: none; text-align: left; line-height: 24px; font-we=
+ight: 400;"> 27 janvier 2026</td>                              </tr>       =
+                       <tr>                               <td align=3D"cent=
+er" class=3D"subheaderCta" style=3D"font-family: Arial, Helvetica Neue, Hel=
+vetica, sans-serif; font-size: 18px; color: #000000; text-decoration: none;=
+ text-align: center; line-height: 16px; font-weight: normal; padding: 15px =
+40px 40px 0;" width=3D"100%">                               <div> </div>   =
+                             <table align=3D"left" border=3D"0" cellpadding=
+=3D"0" cellspacing=3D"0">                                <tbody>           =
+                      <tr>                                  <td align=3D"ce=
+nter" bgcolor=3D"#000000" class=3D"button" style=3D"border-radius: 2px; pad=
+ding: 8px 18px; border: 1px solid #D4D1C7;"><a class=3D"button" clicktracki=
+ng=3D"off" href=3D"https://us1.wizrocketmail.net/r?e=3DK2xrGR97BX96bGt9DSZl=
+eQIEBAJmbmo1KSQlNUxOAgRlb2d4Zm9iN3JwQlEkKTskOQUxJF1bWFEXGi56Kz8kLlxETXo4Ljs=
+tPjkzP1tfXxQUNjsoPD82N0kSRk4lMQ0iM3hoaQMHAABmbmR%2FYWoNeQICBwRmaGBpe3glMUBb=
+bkQ%2BLD0%2FdWBwPEhCWmszPzQqIjYmaU8%3D&r=3Dhttps%3A%2F%2Fstockx.com%2Fbuyin=
+g%2F14836503509588877626%2F%3Futm_source%3Dclevertap%26utm_medium%3Demail%2=
+6utm_campaign%3Db05.3_shippedToBuyer_txn&c=3D712510944&token=3DGlVWBwtSBQUE=
+AwM%3D&try=3D1&link_index=3D137&$follow_redirect=3Dtrue" data-link-index=3D=
+"137" style=3D"font-size: 20px; font-family: Arial, Helvetica Neue, Helveti=
+ca, sans-serif; color: #ffffff; text-decoration: none; border-radius: 2px; =
+border: 0; display: inline-block; line-height: 35px; padding: 0 10px; font-=
+weight: 500;">Suivre ma commande</a></td>                                 <=
+/tr>                                </tbody>                               =
+</table>                               </td>                              <=
+/tr>                             </tbody>                            </tabl=
+e>                            </td>                           </tr>        =
+                  </tbody>                         </table>                =
+         </td>                        </tr>                       </tbody> =
+                     </table>                      </td>                   =
+  </tr>                    </tbody>                   </table>             =
+      </td>                  </tr>                 </tbody>                =
+</table>                </td>               </tr>               <tr>       =
+         <td align=3D"center" class=3D"padding_15" colspan=3D"2" height=3D"=
+auto" style=3D"padding: 0; background-color: #ffffff;" width=3D"640">      =
+          <table align=3D"center" border=3D"0" cellpadding=3D"0" cellspacin=
+g=3D"0">                 <tbody>                  <tr>                   <t=
+d align=3D"center" class=3D"padding_15">                   <table align=3D"=
+center" border=3D"0" cellpadding=3D"0" cellspacing=3D"0">                  =
+  <tbody>                     <tr>                      <td align=3D"left" =
+class=3D"productBoxImage" style=3D"border-collapse: collapse; margin: 0; pa=
+dding: 15px;" width=3D"260"><a href=3D"https://us1.wizrocketmail.net/r?e=3D=
+K2xrGR97BX96bGt9DSZleQIEBAJmbmo1KSQlNUxOAgRlb2d4Zm9iN3JwQlEkKTskOQUxJF1bWFE=
+XGi56Kz8kLlxETXo4LjstPjkzP1tfXxQUNjsoPD82N0kSRk4lMQ0iM3hoaQMHAABmbmR%2FYWoN=
+eQICBwRmaGBpe3glMUBbbkQ%2BLD0%2FdWBwPEhCWmszPzQqIjYmaU8%3D&r=3Dhttps%3A%2F%=
+2Fstockx.com%2Fnike-air-max-plus-university-blue-light-crimson-womens%3Futm=
+_source%3Dclevertap%26utm_medium%3Demail%26utm_campaign%3Db05.3_shippedToBu=
+yer_txn&c=3D712510944&token=3DGlFWBwJXBAkCAw%3D%3D&try=3D1&link_index=3D138=
+&$follow_redirect=3Dtrue" data-link-index=3D"138"><img alt=3D"Nike Air Max =
+Plus University Blue Light Crimson (Women's)" class=3D"full_width" height=
+=3D"auto" src=3D"https://images.stockx.com/images/Nike-Air-Max-Plus-Univers=
+ity-Blue-Light-Crimson-Womens-Product.jpg?fit=3Dfill&bg=3DFFFFFF&w=3D700&h=
+=3D500&fm=3Dwebp&auto=3Dcompress&q=3D90&dpr=3D2&trim=3Dcolor&updated_at=3D1=
+750713011" style=3D"display: block; border: none; font-family: Arial, Helve=
+tica Neue, Helvetica, sans-serif; font-size: 22px; color: #006340; text-dec=
+oration: none; text-align: center; letter-spacing: 1px;" width=3D"260" /></=
+a></td>                      <td align=3D"left" class=3D"productBoxInformat=
+ion" width=3D"280">                      <table align=3D"center" border=3D"=
+0" cellpadding=3D"0" cellspacing=3D"0">                       <tbody>      =
+                  <tr>                         <td class=3D"productName" st=
+yle=3D"font-family: Arial, Helvetica Neue, Helvetica, sans-serif; font-size=
+: 24px; color: #006340; text-decoration: none; text-align: left; line-heigh=
+t: 30px; padding: 30px 15px 15px 15px; font-weight: 500;" width=3D"280"><a =
+href=3D"https://us1.wizrocketmail.net/r?e=3DK2xrGR97BX96bGt9DSZleQIEBAJmbmo=
+1KSQlNUxOAgRlb2d4Zm9iN3JwQlEkKTskOQUxJF1bWFEXGi56Kz8kLlxETXo4LjstPjkzP1tfXx=
+QUNjsoPD82N0kSRk4lMQ0iM3hoaQMHAABmbmR%2FYWoNeQICBwRmaGBpe3glMUBbbkQ%2BLD0%2=
+FdWBwPEhCWmszPzQqIjYmaU8%3D&r=3Dhttps%3A%2F%2Fstockx.com%2Fnike-air-max-plu=
+s-university-blue-light-crimson-womens%3Futm_source%3Dclevertap%26utm_mediu=
+m%3Demail%26utm_campaign%3Db05.3_shippedToBuyer_txn&c=3D712510944&token=3DG=
+lFWBwJXBAkCAw%3D%3D&try=3D1&link_index=3D139&$follow_redirect=3Dtrue" data-=
+link-index=3D"139" style=3D"color: #006340; text-decoration: none;">Nike Ai=
+r Max Plus University Blue Light Crimson (Women's)</a></td>                =
+        </tr>                        <tr>                         <td class=
+=3D"attributes" style=3D"font-family: Arial, Helvetica Neue, Helvetica, san=
+s-serif; font-size: 13px; color: #000000; text-decoration: none; text-align=
+: left; line-height: 16px; font-weight: 600; padding: 0 0 0 15px;" width=3D=
+"280">                         <ul style=3D"list-style-type: none; margin: =
+0; padding: 5px 0 0 0;">                          <li> </li>               =
+           <li class=3D"attributes" style=3D"list-style-type: none; margin:=
+ 0;">ID de style=A0: HF5386-001</li>                          <li> </li>   =
+                       <li class=3D"attributes" style=3D"list-style-type: n=
+one; margin: 0;">Size: US W 9</li>                          <li> </li>     =
+                     <li class=3D"attributes" style=3D"list-style-type: non=
+e; margin: 0;">=C9tat=A0: Nouveau</li>                          <li class=
+=3D"attributes" style=3D"list-style-type: none; margin: 0;">Exp=E9dition pa=
+r le Centre de v=E9rification StockX</li>                          <li> </l=
+i>                          <li class=3D"attributes" style=3D"list-style-ty=
+pe: none; margin: 0;">Num=E9ro de commande=A0: 03-MTS5TA9H7Q</li>          =
+                <li></li>                         </ul>                    =
+     </td>                        </tr>                        <tr>        =
+                 <td class=3D"full_width" style=3D"font-family: Arial, Helv=
+etica Neue, Helvetica, sans-serif; color: #000000; text-decoration: none; t=
+ext-align: left; font-weight: 400; padding: 15px 0 0 15px;" width=3D"280"> =
+                        <table align=3D"left" border=3D"0" cellpadding=3D"0=
+" cellspacing=3D"0" class=3D"full_width">                          <tbody> =
+                          <tr>                            <td class=3D"75" =
+style=3D"font-family: Arial, Helvetica Neue, Helvetica, sans-serif; font-si=
+ze: 13px; color: #000000; text-decoration: none; text-align: left; line-hei=
+ght: 16px; font-weight: 600; min-width: 200px;" width=3D"200">Prix d'achat=
+=A0:</td>                            <td align=3D"right" class=3D"25" style=
+=3D"font-family: Arial, Helvetica Neue, Helvetica, sans-serif; font-size: 1=
+3px; color: #000000; text-decoration: none; text-align: right; line-height:=
+ 16px; font-weight: 600;">CHF 88.72 </td>                           </tr>  =
+                        </tbody>                         </table>          =
+                                         <table align=3D"left" border=3D"0"=
+ cellpadding=3D"0" cellspacing=3D"0" class=3D"full_width">                 =
+         <tbody>                           <tr>                            =
+<td class=3D"75" style=3D"font-family: Arial, Helvetica Neue, Helvetica, sa=
+ns-serif; font-size: 13px; color: #000000; text-decoration: none; text-alig=
+n: left; line-height: 16px; font-weight: 600; min-width: 200px;" width=3D"2=
+00">Processing Fee:</td>                            <td align=3D"right" cla=
+ss=3D"25" style=3D"font-family: Arial, Helvetica Neue, Helvetica, sans-seri=
+f; font-size: 13px; color: #000000; text-decoration: none; text-align: righ=
+t; line-height: 16px; font-weight: 600;">CHF 6.60</td>                     =
+      </tr>                          </tbody>                         </tab=
+le>                                                   <table align=3D"left"=
+ border=3D"0" cellpadding=3D"0" cellspacing=3D"0" class=3D"full_width">    =
+                      <tbody>                           <tr>               =
+             <td class=3D"75" style=3D"font-family: Arial, Helvetica Neue, =
+Helvetica, sans-serif; font-size: 13px; color: #000000; text-decoration: no=
+ne; text-align: left; line-height: 16px; font-weight: 600; min-width: 200px=
+;" width=3D"200">Shipping:</td>                            <td align=3D"rig=
+ht" class=3D"25" style=3D"font-family: Arial, Helvetica Neue, Helvetica, sa=
+ns-serif; font-size: 13px; color: #000000; text-decoration: none; text-alig=
+n: right; line-height: 16px; font-weight: 600;">CHF 20.00</td>             =
+              </tr>                          </tbody>                      =
+   </table>                                                   <table align=
+=3D"left" border=3D"0" cellpadding=3D"0" cellspacing=3D"0" class=3D"full_wi=
+dth">                          <tbody>                           <tr>      =
+                      <td class=3D"full_width" colspan=3D"2" style=3D"font-=
+family: Arial, Helvetica Neue, Helvetica, sans-serif; font-size: 0px; color=
+: #ffffff; text-decoration: none; text-align: left; line-height: 0px; paddi=
+ng: 5px 0 0 0; border-bottom: 0px solid #000000;" width=3D"240">  </td>    =
+                       </tr>                           <tr>                =
+            <td class=3D"75" style=3D"font-family: Arial, Helvetica Neue, H=
+elvetica, sans-serif; font-size: 14px; text-decoration: none; text-align: l=
+eft; line-height: 18px; font-weight: 600; display: inline-block; min-width:=
+ 200px; text-transform: uppercase; color: #006340;" width=3D"200">Prix tota=
+l =E0 payer</td>                            <td align=3D"right" class=3D"25=
+" style=3D"text-align: right; font-family: Arial, Helvetica Neue, Helvetica=
+, sans-serif; font-size: 14px; color: #006340; text-decoration: none; line-=
+height: 18px; font-weight: 600;">CHF 115.31*</td>                          =
+ </tr>                          </tbody>                         </table>  =
+                       </td>                        </tr>                  =
+      <tr>                         <td align=3D"center" class=3D"productBox=
+Cta" style=3D"font-family: Arial, Helvetica Neue, Helvetica, sans-serif; fo=
+nt-size: 18px; color: #000000; text-decoration: none; text-align: center; l=
+ine-height: 16px; font-weight: normal; padding: 15px 0 30px 15px;" width=3D=
+"100%">                         <table border=3D"0" cellpadding=3D"0" cells=
+pacing=3D"0" class=3D"centerbutton">                          <tbody>      =
+                     <tr>                            <td align=3D"center" b=
+gcolor=3D"#000000" class=3D"button" style=3D"border-radius: 2px; padding: 8=
+px 18px;"><a class=3D"button" href=3D"https://us1.wizrocketmail.net/r?e=3DK=
+2xrGR97BX96bGt9DSZleQIEBAJmbmo1KSQlNUxOAgRlb2d4Zm9iN3JwQlEkKTskOQUxJF1bWFEX=
+Gi56Kz8kLlxETXo4LjstPjkzP1tfXxQUNjsoPD82N0kSRk4lMQ0iM3hoaQMHAABmbmR%2FYWoNe=
+QICBwRmaGBpe3glMUBbbkQ%2BLD0%2FdWBwPEhCWmszPzQqIjYmaU8%3D&r=3Dhttps%3A%2F%2=
+Fstockx.com%2Fbuying%2F14836503509588877626%2F%3Futm_source%3Dclevertap%26u=
+tm_medium%3Demail%26utm_campaign%3Db05.3_shippedToBuyer_txn&c=3D712510944&t=
+oken=3DGlVWBwtSBQUEAwM%3D&try=3D1&link_index=3D140&$follow_redirect=3Dtrue"=
+ data-link-index=3D"140" style=3D"font-size: 20px; font-family: Arial, Helv=
+etica Neue, Helvetica, sans-serif; color: #ffffff; text-decoration: none; b=
+order-radius: 2px; border: 0; display: inline-block; line-height: 35px; pad=
+ding: 0 10px; font-weight: 500;">Voir la commande</a></td>                 =
+          </tr>                          </tbody>                         <=
+/table>                         </td>                        </tr>         =
+              </tbody>                      </table>                      <=
+/td>                     </tr>                     <tr>                    =
+  <td align=3D"left" colspan=3D"2">                       <table align=3D"l=
+eft" border=3D"0" cellpadding=3D"0" cellspacing=3D"0">                     =
+  <tbody>                        <tr>                         <td align=3D"=
+center" class=3D"footnote" style=3D"padding: 0 0 15px 15px; font-family: Ar=
+ial, Helvetica Neue, Helvetica, sans-serif; font-size: 13px; color: #000000=
+; text-decoration: none; text-align: left; line-height: 16px; font-weight: =
+300; font-style: italic;" width=3D"100%">*=A0Tous les droits de douane et l=
+es taxes applicables sont inclus dans le prix total</td>                   =
+     </tr>                       </tbody>                      </table>    =
+                  </td>                     </tr>                    </tbod=
+y>                   </table>                   </td>                  </tr=
+>                 </tbody>                </table>                </td>    =
+           </tr>               <tr>                <td bgcolor=3D"#D4D1C7" =
+class=3D"copyBlock" colspan=3D"2" id=3D"topcopy30" style=3D"padding: 30px 2=
+0px 0px 105px; line-height: 0; font-size: 0;">                <table border=
+=3D"0" cellpadding=3D"0" cellspacing=3D"0">                 <tbody>        =
+          <tr>                   <td align=3D"center" class=3D"copy" style=
+=3D"font-family: Arial, Helvetica Neue, Helvetica, sans-serif; font-size: 1=
+8px; color: #000005; text-decoration: none; text-align: left; line-height: =
+24px; font-weight: 400;" width=3D"100%">Bonne nouvelle=A0! Ton achat StockX=
+ a =E9t=E9 v=E9rifi=E9, nous te l'envoyons au plus vite. Retrouve toutes le=
+s informations pour suivre ton colis en temps r=E9el <a href=3D"https://us1=
+.wizrocketmail.net/r?e=3DK2xrGR97BX96bGt9DSZleQIEBAJmbmo1KSQlNUxOAgRlb2d4Zm=
+9iN3JwQlEkKTskOQUxJF1bWFEXGi56Kz8kLlxETXo4LjstPjkzP1tfXxQUNjsoPD82N0kSRk4lM=
+Q0iM3hoaQMHAABmbmR%2FYWoNeQICBwRmaGBpe3glMUBbbkQ%2BLD0%2FdWBwPEhCWmszPzQqIj=
+YmaU8%3D&r=3Dhttps%3A%2F%2Fstockx.com%2Fbuying%2F14836503509588877626%3Futm=
+_source%3Dclevertap%26utm_medium%3Demail%26utm_campaign%3Db05.3_shippedToBu=
+yer_txn&c=3D712510944&token=3DGlZfAwFVDQcHBw%3D%3D&try=3D1&$follow_redirect=
+=3Dtrue" style=3D"text-decoration:underline; color:#000000" >ici</a>.</td> =
+                 </tr>                 </tbody>                </table>    =
+            </td>               </tr>               <tr>                <td=
+ colspan=3D"2" style=3D"line-height: 0; font-size: 0;" width=3D"100%">     =
+           <table border=3D"0" cellpadding=3D"0" cellspacing=3D"0" width=3D=
+"100%">                 <tbody>                  <tr>                   <td=
+ align=3D"center" bgcolor=3D"#D4D1C7" class=3D"full_width" colspan=3D"2" st=
+yle=3D"padding: 30px 0;" width=3D"100%">                   <table align=3D"=
+center" border=3D"0" cellpadding=3D"0" cellspacing=3D"0" class=3D"full_widt=
+h" style=3D"display: block;" width=3D"100%">                    <tbody>    =
+                 <tr>                      <td align=3D"center" class=3D"li=
+sttitle" colspan=3D"2" style=3D"font-family: Arial, Helvetica Neue, Helveti=
+ca, sans-serif; font-size: 18px; color: #000000; text-decoration: none; tex=
+t-align: left; line-height: 24px; font-weight: 600; padding-top: 0px; paddi=
+ng-left: 105px; padding-right: 105px;" width=3D"100%">N'oublie pas...</td> =
+                    </tr>                     <tr>                      <td=
+ align=3D"center" class=3D"listitem" style=3D"font-family: Arial, Helvetica=
+ Neue, Helvetica, sans-serif; font-size: 18px; color: #000000; text-decorat=
+ion: none; text-align: left; line-height: 24px; font-weight: normal; paddin=
+g-top: 5px; padding-left: 105px; padding-right: 105px;" width=3D"100%">    =
+                  <ul class=3D"glist" style=3D"margin: 0; margin-left: 15px=
+; padding: 0; font-family: Arial, Helvetica Neue, Helvetica, sans-serif; co=
+lor: #006340; font-size: 15px; line-height: 20px; font-weight: 400;" type=
+=3D"disc">                       <li style=3D"font-family: Arial, Helvetica=
+ Neue, Helvetica, sans-serif; color: #006340; font-size: 15px; line-height:=
+ 18px; font-weight: 400;"><a href=3D"https://us1.wizrocketmail.net/r?e=3DK2=
+xrGR97BX96bGt9DSZleQIEBAJmbmo1KSQlNUxOAgRlb2d4Zm9iN3JwQlEkKTskOQUxJF1bWFEXG=
+i56Kz8kLlxETXo4LjstPjkzP1tfXxQUNjsoPD82N0kSRk4lMQ0iM3hoaQMHAABmbmR%2FYWoNeQ=
+ICBwRmaGBpe3glMUBbbkQ%2BLD0%2FdWBwPEhCWmszPzQqIjYmaU8%3D&r=3Dhttps%3A%2F%2F=
+stockx.com%2Fhelp%2Ffr-FR%2Farticles%2FCan-I-cancel-my-purchase%3Futm_sourc=
+e%3Dclevertap%26utm_medium%3Demail%26utm_campaign%3Db05.3_shippedToBuyer_tx=
+n&c=3D712510944&token=3DDlBUCQFQAwUM&try=3D1&link_index=3D141&$follow_redir=
+ect=3Dtrue" data-link-index=3D"141" style=3D"text-decoration: none; color: =
+#006340;">Est-ce que je peux annuler un achat=A0?</a></li>                 =
+      <li style=3D"font-family: Arial, Helvetica Neue, Helvetica, sans-seri=
+f; color: #006340; font-size: 15px; line-height: 18px; font-weight: 400;"><=
+a href=3D"https://us1.wizrocketmail.net/r?e=3DK2xrGR97BX96bGt9DSZleQIEBAJmb=
+mo1KSQlNUxOAgRlb2d4Zm9iN3JwQlEkKTskOQUxJF1bWFEXGi56Kz8kLlxETXo4LjstPjkzP1tf=
+XxQUNjsoPD82N0kSRk4lMQ0iM3hoaQMHAABmbmR%2FYWoNeQICBwRmaGBpe3glMUBbbkQ%2BLD0=
+%2FdWBwPEhCWmszPzQqIjYmaU8%3D&r=3Dhttps%3A%2F%2Fstockx.com%2Fhelp%2Ffr-FR%2=
+Farticles%2FWhat-happens-if-my-item-gets-lost-or-damaged-while-buying-on-St=
+ockX%3Futm_source%3Dclevertap%26utm_medium%3Demail%26utm_campaign%3Db05.3_s=
+hippedToBuyer_txn&c=3D712510944&token=3DBl1XBAFWDQgMAQ%3D%3D&try=3D1&link_i=
+ndex=3D142&$follow_redirect=3Dtrue" data-link-index=3D"142" style=3D"text-d=
+ecoration: none; color: #006340;">Que se passe-t-il si mon article est perd=
+u ou endommag=E9 lors du processus d'achat sur StockX=A0?</a></li>         =
+             </ul>                      </td>                     </tr>    =
+                </tbody>                   </table>                   </td>=
+                  </tr>                 </tbody>                </table>   =
+             </td>               </tr>              </tbody>             </=
+table>             </td>            </tr>            <tr>             <td a=
+lign=3D"left" bgcolor=3D"#006340" class=3D"full_width" style=3D"padding: 0;=
+" width=3D"100%">             <table border=3D"0" cellpadding=3D"0" cellspa=
+cing=3D"0" class=3D"full_width" width=3D"640">              <tbody>        =
+       <tr>                <td align=3D"left" class=3D"full_width" style=3D=
+"padding: 45px 30px 0px 30px;">                <table align=3D"center" bord=
+er=3D"0" cellpadding=3D"0" cellspacing=3D"0" class=3D"full_width">         =
+        <tbody>                  <tr>                   <td align=3D"center=
+" class=3D"listitem" style=3D"font-family: Arial, Helvetica Neue, Helvetica=
+, sans-serif; font-size: 18px; color: #d4d1c7; text-decoration: none; text-=
+align: center; line-height: 24px; font-weight: normal; padding-bottom: 45px=
+;">                    <ul style=3D"margin: 0; padding: 0; font-family: Ari=
+al, Helvetica Neue, Helvetica, sans-serif; color: #d4d1c7; font-size: 18px;=
+ line-height: 24px; font-weight: 600; display: inline-block; list-style-typ=
+e: none;" type=3D"none">                     <li style=3D"display: inline-b=
+lock; padding: 0 5px 0 0; margin: 0 !important;"><a align=3D"left" href=3D"=
+https://us1.wizrocketmail.net/r?e=3DK2xrGR97BX96bGt9DSZleQIEBAJmbmo1KSQlNUx=
+OAgRlb2d4Zm9iN3JwQlEkKTskOQUxJF1bWFEXGi56Kz8kLlxETXo4LjstPjkzP1tfXxQUNjsoPD=
+82N0kSRk4lMQ0iM3hoaQMHAABmbmR%2FYWoNeQICBwRmaGBpe3glMUBbbkQ%2BLD0%2FdWBwPEh=
+CWmszPzQqIjYmaU8%3D&r=3Dhttps%3A%2F%2Fstockx.com%2Fsettings%3Futm_source%3D=
+clevertap%26utm_medium%3Demail%26utm_campaign%3Db05.3_shippedToBuyer_txn&c=
+=3D712510944&token=3DBlFWBwRTAQEEAg%3D%3D&try=3D1&link_index=3D147&$follow_=
+redirect=3Dtrue" data-link-index=3D"147" style=3D"text-decoration: none; co=
+lor: #d4d1c7;">Param=E8tres de messagerie</a></li>                     <li =
+style=3D"display: inline-block; border-left: #D4D1C7 1px solid; padding: 0 =
+10px;"><a href=3D"https://us1.wizrocketmail.net/r?e=3DK2xrGR97BX96bGt9DSZle=
+QIEBAJmbmo1KSQlNUxOAgRlb2d4Zm9iN3JwQlEkKTskOQUxJF1bWFEXGi56Kz8kLlxETXo4Ljst=
+PjkzP1tfXxQUNjsoPD82N0kSRk4lMQ0iM3hoaQMHAABmbmR%2FYWoNeQICBwRmaGBpe3glMUBbb=
+kQ%2BLD0%2FdWBwPEhCWmszPzQqIjYmaU8%3D&r=3Dhttps%3A%2F%2Fstockx.com%2Fhelp%2=
+Fhome%3Futm_source%3Dclevertap%26utm_medium%3Demail%26utm_campaign%3Db05.3_=
+shippedToBuyer_txn&c=3D712510944&token=3DGlVRAARVDQQDAwg%3D&try=3D1&link_in=
+dex=3D148&$follow_redirect=3Dtrue" data-link-index=3D"148" rel=3D"noopener =
+noreferrer" style=3D"text-decoration: none; color: #d4d1c7; margin: 0;" tar=
+get=3D"_blank">Aide</a></li>                     <li style=3D"display: inli=
+ne-block; border-left: #D4D1C7 1px solid; padding-left: 10px; margin: 0;"><=
+a href=3D"https://us1.wizrocketmail.net/r?e=3DK2xrGR97BX96bGt9DSZleQIEBAJmb=
+mo1KSQlNUxOAgRlb2d4Zm9iN3JwQlEkKTskOQUxJF1bWFEXGi56Kz8kLlxETXo4LjstPjkzP1tf=
+XxQUNjsoPD82N0kSRk4lMQ0iM3hoaQMHAABmbmR%2FYWoNeQICBwRmaGBpe3glMUBbbkQ%2BLD0=
+%2FdWBwPEhCWmszPzQqIjYmaU8%3D&r=3Dhttps%3A%2F%2Fstockx.com%2Fjobs%3Futm_sou=
+rce%3Dclevertap%26utm_medium%3Demail%26utm_campaign%3Db05.3_shippedToBuyer_=
+txn&c=3D712510944&token=3DBldRAApUDQkNAA%3D%3D&try=3D1&link_index=3D149&$fo=
+llow_redirect=3Dtrue" data-link-index=3D"149" style=3D"text-decoration: non=
+e; color: #d4d1c7;">Recrutement</a></li>                     <li></li>     =
+               </ul>                    </li>                   </ul>      =
+             </td>                  </tr>                 </tbody>         =
+       </table>                </td>               </tr>              </tbo=
+dy>             </table>             </td>            </tr>            <tr>=
+             <td align=3D"center" bgcolor=3D"#eae8e3" class=3D"full_width" =
+style=3D"border-collapse: collapse; padding: 15px;">             <table bor=
+der=3D"0" cellpadding=3D"0" cellspacing=3D"0" class=3D"full_width" style=3D=
+"border-collapse: collapse;" width=3D"100%">              <tbody>          =
+     <tr>                <td align=3D"center" style=3D"border-collapse: col=
+lapse; border: 0; display: block; padding-bottom: 15px; padding-top: 15px;"=
+>                 <table align=3D"center" border=3D"0" cellpadding=3D"0" ce=
+llspacing=3D"0" style=3D"border: none; mso-table-lspace: 0pt; mso-table-rsp=
+ace: 0pt; border-collapse: collapse;">                 <tbody>             =
+     <tr>                   <td valign=3D"bottom" width=3D"30"><a href=3D"h=
+ttps://us1.wizrocketmail.net/r?e=3DK2xrGR97BX96bGt9DSZleQIEBAJmbmo1KSQlNUxO=
+AgRlb2d4Zm9iN3JwQlEkKTskOQUxJF1bWFEXGi56Kz8kLlxETXo4LjstPjkzP1tfXxQUNjsoPD8=
+2N0kSRk4lMQ0iM3hoaQMHAABmbmR%2FYWoNeQICBwRmaGBpe3glMUBbbkQ%2BLD0%2FdWBwPEhC=
+WmszPzQqIjYmaU8%3D&r=3Dhttps%3A%2F%2Fwww.facebook.com%2Fstockxdotcom&c=3D71=
+2510944&token=3DBlNQCQBWBwUH&try=3D1&link_index=3D167&$follow_redirect=3Dtr=
+ue" data-link-index=3D"167" style=3D"text-align: center;"><img alt=3D"faceb=
+ook" border=3D"0" height=3D"30" src=3D"https://email-assets.stockx.com/ever=
+greenimages/social/facebook.png" style=3D"display: inline-block;" width=3D"=
+30" /></a></td>                   <td class=3D"socialspace" style=3D"font-s=
+ize: 1px; line-height: 1px; width: 45px;"> </td>                   <td vali=
+gn=3D"middle" width=3D"30"><a href=3D"https://us1.wizrocketmail.net/r?e=3DK=
+2xrGR97BX96bGt9DSZleQIEBAJmbmo1KSQlNUxOAgRlb2d4Zm9iN3JwQlEkKTskOQUxJF1bWFEX=
+Gi56Kz8kLlxETXo4LjstPjkzP1tfXxQUNjsoPD82N0kSRk4lMQ0iM3hoaQMHAABmbmR%2FYWoNe=
+QICBwRmaGBpe3glMUBbbkQ%2BLD0%2FdWBwPEhCWmszPzQqIjYmaU8%3D&r=3Dhttps%3A%2F%2=
+Ftwitter.com%2Fstockx&c=3D712510944&token=3DGlNSBwdVAQYDAg%3D%3D&try=3D1&li=
+nk_index=3D168&$follow_redirect=3Dtrue" data-link-index=3D"168" style=3D"te=
+xt-align: center;"><img alt=3D"twitter" border=3D"0" height=3D"30" src=3D"h=
+ttps://stockx-assets.s3.amazonaws.com/emails/social/2023_grey_x.png" style=
+=3D"display: inline-block;" width=3D"30" /></a></td>                   <td =
+class=3D"socialspace" style=3D"font-size: 1px; line-height: 1px; width: 45p=
+x;"> </td>                   <td valign=3D"middle" width=3D"30"><a href=3D"=
+https://us1.wizrocketmail.net/r?e=3DK2xrGR97BX96bGt9DSZleQIEBAJmbmo1KSQlNUx=
+OAgRlb2d4Zm9iN3JwQlEkKTskOQUxJF1bWFEXGi56Kz8kLlxETXo4LjstPjkzP1tfXxQUNjsoPD=
+82N0kSRk4lMQ0iM3hoaQMHAABmbmR%2FYWoNeQICBwRmaGBpe3glMUBbbkQ%2BLD0%2FdWBwPEh=
+CWmszPzQqIjYmaU8%3D&r=3Dhttps%3A%2F%2Fwww.instagram.com%2Fstockx%2F&c=3D712=
+510944&token=3DGl1UAgZSDQUNAg%3D%3D&try=3D1&link_index=3D169&$follow_redire=
+ct=3Dtrue" data-link-index=3D"169" style=3D"text-align: center;"><img alt=
+=3D"instagram" border=3D"0" height=3D"30" src=3D"https://email-assets.stock=
+x.com/evergreenimages/social/instagram.png" style=3D"display: inline-block;=
+" width=3D"30" /></a></td>                   <td class=3D"socialspace" styl=
+e=3D"font-size: 1px; line-height: 1px; width: 45px;"> </td>                =
+   <td valign=3D"middle" width=3D"30"><a href=3D"https://us1.wizrocketmail.=
+net/r?e=3DK2xrGR97BX96bGt9DSZleQIEBAJmbmo1KSQlNUxOAgRlb2d4Zm9iN3JwQlEkKTskO=
+QUxJF1bWFEXGi56Kz8kLlxETXo4LjstPjkzP1tfXxQUNjsoPD82N0kSRk4lMQ0iM3hoaQMHAABm=
+bmR%2FYWoNeQICBwRmaGBpe3glMUBbbkQ%2BLD0%2FdWBwPEhCWmszPzQqIjYmaU8%3D&r=3Dht=
+tps%3A%2F%2Fwww.youtube.com%2Fstockx%2F&c=3D712510944&token=3DGlVRBgdXBgQDC=
+wc%3D&try=3D1&link_index=3D170&$follow_redirect=3Dtrue" data-link-index=3D"=
+170" style=3D"text-align: center;"><img alt=3D"YouTube" border=3D"0" height=
+=3D"21" src=3D"https://email-assets.stockx.com/evergreenimages/social/youtu=
+be.png" style=3D"display: inline-block;" width=3D"30" /></a></td>          =
+         <td class=3D"socialspace" style=3D"font-size: 1px; line-height: 1p=
+x; width: 45px;"> </td>                   <td valign=3D"middle" width=3D"30=
+"><a href=3D"https://us1.wizrocketmail.net/r?e=3DK2xrGR97BX96bGt9DSZleQIEBA=
+Jmbmo1KSQlNUxOAgRlb2d4Zm9iN3JwQlEkKTskOQUxJF1bWFEXGi56Kz8kLlxETXo4LjstPjkzP=
+1tfXxQUNjsoPD82N0kSRk4lMQ0iM3hoaQMHAABmbmR%2FYWoNeQICBwRmaGBpe3glMUBbbkQ%2B=
+LD0%2FdWBwPEhCWmszPzQqIjYmaU8%3D&r=3Dhttps%3A%2F%2Fdiscord.com%2Finvite%2Fs=
+tockx&c=3D712510944&token=3DD11fAwNSAAcA&try=3D1&link_index=3D171&$follow_r=
+edirect=3Dtrue" data-link-index=3D"171" style=3D"text-align: center;"><img =
+alt=3D"YouTube" border=3D"0" height=3D"21" src=3D"https://stockx-assets.s3.=
+amazonaws.com/Discord-Logo-grey.png" style=3D"display: inline-block;" width=
+=3D"30" /></a></td>                  </tr>                 </tbody>        =
+        </table>                </td>               </tr>               <tr=
+>                <td style=3D"padding: 0 30px 30px 30px; text-align: center=
+;">                <table border=3D"0" cellpadding=3D"0" cellspacing=3D"0" =
+width=3D"100%">                 <tbody>                  <tr>              =
+     <td class=3D"disclaimer" style=3D"font-family: Arial, Helvetica Neue, =
+Helvetica, sans-serif; font-size: 10px; color: #006340; font-weight: 400; t=
+ext-decoration: none; text-align: center; line-height: 12px; padding-top: 1=
+0px;" width=3D"100%">=A92026 StockX. Tous droits r=E9serv=E9s. </td>       =
+           </tr>                  <tr>                   <td class=3D"discl=
+aimer" style=3D"font-family: Arial, Helvetica Neue, Helvetica, sans-serif; =
+font-size: 10px; color: #006340; font-weight: 400; text-decoration: none; t=
+ext-align: center; line-height: 12px; padding-top: 5px;" width=3D"100%">L'e=
+xp=E9diteur de cet e-mail est StockX, 1046 Woodward Avenue, Detroit, MI 482=
+26, =C9tats-Unis</td>                  </tr>                 </tbody>      =
+          </table>                </td>               </tr>              </=
+tbody>             </table>             </td>            </tr>           </=
+tbody>          </table>          </td>         </tr>        </tbody>      =
+ </table>       </td>      </tr>     </tbody>    </table>    </td>   </tr> =
+ </tbody> </table> <img src=3D"https://link.tmail.stockx.com/wf/open?upn=3D=
+u001.-2B-2FWUTsYcoPwCCt66lkgkXBtcnhWFBWdCGyz5Fv-2Flo7C-2ByfZr4s79HnQ5luY3tL=
+S11efrq-2BOe4XCRHu2sLWzhfo-2BmVLVhXIPN4U8BV3oiBzFqRGT8G0gTYpEaIbS4erZ1KUJJJ=
+depBvEwYJyuGWuenmqYBRTLTLuHRLyNw3trM-2B-2F2VsGyb3lLPwkzY-2FC0CGEaQJwzbe4ibZ=
+9sfXCvHRibSckaH2eD0rIC0wLUkxkLwm-2FZxr4aejY-2FTO4gnZcUAT7Bhe2V1k9-2BCuDdi5x=
+dm5N6-2FfHNcHUURaIRakK2NXMhiD3YIcDGohiAFVjnX2Z5veirUO07jN9QII1VSwILNvgE23r1=
+koJIh7GcJcg3eSLvKYzmZMxdxRQMmYjLnJN5KYjschroRW1XY4IUd1-2BRlzOa7ihh2trhLLQ-2=
+B4E8Hcq32fVcstkrEJi9Zaa1pgb1CqzpMG4n9aXMs48Kuj5tjm4r4FH7XHUIYrFHS02RjG-2FlO=
+aYhDUAkJv6vJ5G2b1sGhZvvG" alt=3D"" width=3D"1" height=3D"1" border=3D"0" st=
+yle=3D"height:1px !important;width:1px !important;border-width:0 !important=
+;margin-top:0 !important;margin-bottom:0 !important;margin-right:0 !importa=
+nt;margin-left:0 !important;padding-top:0 !important;padding-bottom:0 !impo=
+rtant;padding-right:0 !important;padding-left:0 !important;"/></body> </htm=
+l> <img  alt=3D"" border=3D"0" height=3D"1" width=3D"1" src=3D"https://us1.=
+wizrocketmail.net/r?e=3DK2xrGR97BX96bGt9DSZleQIEBAJmbmo1KSQlNUxOAgRlb2d4Zm9=
+iN3JwQlEkKTskOQUxJF1bWFEXGi56Kz8kLlxETXo4LjstPjkzP1tfXxQBMzc8Mj4uMBBHS0Y8BT=
+svdWBwegUBBQVjbGZ9ZwVgewAGAQVlaHBndS0oOVlvQV0hNSZpbXglMUBbblAyPDM%2BOy5wNg%=
+3D%3D&c=3D664779872"></img>

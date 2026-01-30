@@ -5,9 +5,13 @@ import type { OrderNode, PageInfo, PricingResult } from "@/app/types";
 import { postJson } from "@/app/lib/api";
 
 const GET_BUY_ORDER_QUERY = `
-  query GET_BUY_ORDER_FULL(
+  query GET_BUY_ORDER(
     $chainId: String
     $orderId: String
+    $country: String
+    $market: String
+    $isShipByDateEnabled: Boolean!
+    $isDFSUpdatesEnabled: Boolean!
   ) {
     viewer {
       order(chainId: $chainId, orderId: $orderId) {
@@ -15,43 +19,41 @@ const GET_BUY_ORDER_QUERY = `
           id
           chainId
           orderNumber
+          created
+          sourceType
+          guestOrderTransferMessage
+          estimatedDeliveryDateRange {
+            estimatedDeliveryDate
+            latestEstimatedDeliveryDate
+            estimatedDeliveryStatus
+          }
+          tradeInvoice @include(if: $isDFSUpdatesEnabled) {
+            transactions {
+              id
+              locationUrl
+            }
+          }
+          deliveredDate
+          actionCode
+          referenceType
+          sellerShipByDateRange @include(if: $isShipByDateEnabled) {
+            start
+            end
+            actual
+          }
           status
           currentStatus {
             key
             completionStatus
           }
-          estimatedDeliveryDateRange {
-            estimatedDeliveryDate
-            latestEstimatedDeliveryDate
-          }
-          shipping {
-            shipment {
-              trackingUrl
-              deliveryDate
-            }
-            returnShipment {
-              trackingUrl
-            }
-          }
-          currency {
-            code
-          }
-          payment {
-            settledAmount {
-              value
-              currency
-            }
-            authorizedAmount {
-              value
-              currency
-            }
-          }
-          pricing {
-            finalized {
-              local {
-                total
-                subtotal
-              }
+          user {
+            shippingAddress {
+              address1
+              address2
+              city
+              region
+              country
+              zipCode
             }
           }
           product {
@@ -60,14 +62,235 @@ const GET_BUY_ORDER_QUERY = `
             }
             variant {
               id
+              traits {
+                size
+                sizeDescriptor
+              }
+              sizeChart {
+                baseSize
+                baseType
+                displayOptions {
+                  size
+                  type
+                }
+              }
+              market(currencyCode: USD) {
+                state(country: $country, market: $market) {
+                  lowestAsk {
+                    amount
+                  }
+                  highestBid {
+                    amount
+                  }
+                }
+              }
               product {
+                id
                 title
-                brand
+                primaryTitle
+                secondaryTitle
+                listingType
+                sizeDescriptor
+                productCategory
                 urlKey
+                defaultSizeConversion {
+                  name
+                  type
+                }
                 media {
                   thumbUrl
+                  smallImageUrl
                   imageUrl
                 }
+                brand
+                primaryCategory
+                browseVerticals
+                contentGroup
+              }
+            }
+          }
+          checkoutType
+          states {
+            title
+            subtitle
+            status
+            progress
+            meta
+            sourceType
+          }
+          currency {
+            code
+          }
+          returnDetails {
+            refundMechanism
+            type
+          }
+          return {
+            returnDetails {
+              refundMechanism
+              type
+            }
+            shipping {
+              shipment {
+                documents {
+                  returnInstructions
+                }
+              }
+            }
+            pricing {
+              finalized {
+                local {
+                  credit {
+                    total
+                    adjustments {
+                      name
+                      amount
+                      percentage
+                      translationKey
+                      excludedFromTotal
+                      item
+                      groupInternal
+                    }
+                  }
+                }
+              }
+            }
+          }
+          returnInfo {
+            eligibilityDays
+            returnEligibilityStatus
+            returnEligibilityEndDate
+            returnByDate
+            orderDeliveredDate
+            orderReturnedDate
+          }
+          pricing {
+            finalized {
+              local {
+                credit {
+                  total
+                  adjustments {
+                    name
+                    amount
+                    percentage
+                    translationKey
+                    excludedFromTotal
+                    item
+                    groupInternal
+                  }
+                }
+                subtotal
+                total
+                adjustments {
+                  name
+                  amount
+                  excludedFromTotal
+                  translationKey
+                  groupInternal
+                }
+              }
+            }
+          }
+          payment {
+            id
+            settledAmount {
+              value
+              currency
+            }
+            authorizedAmount {
+              value
+              currency
+            }
+            transactions {
+              paymentInstrument {
+                descriptor
+                type
+                cardType
+              }
+              authorizedAmount {
+                value
+                currency
+              }
+              settledAmount {
+                value
+                currency
+              }
+              provider
+              id
+              token
+              status
+              method {
+                id
+                type
+              }
+            }
+          }
+          shipping {
+            shipment {
+              trackingUrl
+              deliveryDate
+            }
+            returnShipment {
+              documents {
+                returnInstructions
+              }
+              trackingUrl
+            }
+          }
+          resellNoFee {
+            eligible
+            expiresAt
+            eligibilityDays
+          }
+          returnInfo {
+            eligibilityDays
+            returnEligibilityEndDate
+            returnEligibilityStatus
+            returnByDate
+          }
+          pickUpDetails {
+            locationId
+            locationName
+            address {
+              address1
+              address2
+              city
+              region
+              country
+              zipCode
+              latitude
+              longitude
+            }
+            pickUpFirstName
+            pickUpLastName
+            openingHours {
+              monday {
+                open
+                close
+              }
+              tuesday {
+                open
+                close
+              }
+              wednesday {
+                open
+                close
+              }
+              thursday {
+                open
+                close
+              }
+              friday {
+                open
+                close
+              }
+              saturday {
+                open
+                close
+              }
+              sunday {
+                open
+                close
               }
             }
           }
@@ -181,8 +404,23 @@ export function useSupplierOrders() {
           size = n.localizedSizeTitle;
         } else {
           const baseSize = n.productVariant?.sizeChart?.baseSize;
-          const baseType = n.productVariant?.sizeChart?.baseType;
-          size = baseSize ? `${baseType?.toUpperCase() || ""} ${baseSize}`.trim() : null;
+          const baseTypeRaw = n.productVariant?.sizeChart?.baseType || "";
+          const baseType = baseTypeRaw.toLowerCase();
+          if (baseSize) {
+            if (baseType.includes("eu")) {
+              size = `EU ${baseSize}`;
+            } else if (baseType.includes("us")) {
+              size = `US ${baseSize}`;
+            } else if (baseType.includes("uk")) {
+              size = `UK ${baseSize}`;
+            } else if (baseType.includes("asia")) {
+              size = `ASIA ${baseSize}`;
+            } else {
+              size = `${baseTypeRaw.toUpperCase()} ${baseSize}`.trim();
+            }
+          } else {
+            size = null;
+          }
         }
 
         const purchaseDate = n.purchaseDate ?? null;
@@ -343,21 +581,20 @@ export function useSupplierOrders() {
         const variables = {
           chainId: node.chainId,
           orderId: node.orderId,
+          country: "CH",
+          market: "CH",
+          isShipByDateEnabled: true,
+          isDFSUpdatesEnabled: true,
         };
 
-        const response = await fetch("https://stockx.com/api/p/e", {
+        const response = await fetch("/api/stockx", {
           method: "POST",
           headers: {
             "content-type": "application/json",
-            authorization: `Bearer ${token}`,
-            "apollographql-client-name": "Iron",
-            "apollographql-client-version": "2026.01.04.01",
-            "app-platform": "Iron",
-            "app-version": "2026.01.04.01",
-            accept: "application/json",
           },
           body: JSON.stringify({
-            operationName: "GET_BUY_ORDER_FULL",
+            token,
+            operationName: "GET_BUY_ORDER",
             query: GET_BUY_ORDER_QUERY,
             variables,
           }),
@@ -386,6 +623,8 @@ export function useSupplierOrders() {
         const statusKeyB = buyOrder?.currentStatus?.key || null;
         const estimatedDeliveryB = buyOrder?.estimatedDeliveryDateRange?.estimatedDeliveryDate || null;
         const latestEstimatedDeliveryB = buyOrder?.estimatedDeliveryDateRange?.latestEstimatedDeliveryDate || null;
+        const checkoutTypeB = buyOrder?.checkoutType || null;
+        const statesB = buyOrder?.states || null;
 
         const enrichedData = {
           ...node,
@@ -403,6 +642,8 @@ export function useSupplierOrders() {
           trackingUrl,
           estimatedDeliveryB,
           latestEstimatedDeliveryB,
+          stockxCheckoutType: checkoutTypeB,
+          stockxStates: statesB,
         };
 
         return {
@@ -434,8 +675,8 @@ export function useSupplierOrders() {
       }
     };
 
-    const BATCH_SIZE = 40;
-    const BATCH_DELAY_MS = 500;
+    const BATCH_SIZE = 30;
+    const BATCH_DELAY_MS = 1000;
     const totalBatches = Math.ceil(total / BATCH_SIZE);
 
     for (let batchIndex = 0; batchIndex < totalBatches; batchIndex++) {

@@ -143,6 +143,23 @@ export default function ManualEntryModal({
               />
             </div>
 
+            <div className="grid grid-cols-2 gap-3">
+              <input
+                type="text"
+                value={localData.stockxCheckoutType || ""}
+                onChange={(e) => update({ stockxCheckoutType: e.target.value })}
+                placeholder="Checkout Type (e.g., EXPRESS_STANDARD)"
+                className="w-full px-3 py-2 border rounded focus:ring-2 focus:ring-blue-500"
+              />
+              <input
+                type="text"
+                value={localData.stockxStatus || "MANUAL"}
+                onChange={(e) => update({ stockxStatus: e.target.value })}
+                placeholder="StockX Status"
+                className="w-full px-3 py-2 border rounded focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
+
             <div className="grid grid-cols-3 gap-3">
               <input
                 type="datetime-local"
@@ -155,39 +172,28 @@ export default function ManualEntryModal({
                 className="w-full px-3 py-2 border rounded focus:ring-2 focus:ring-blue-500"
               />
               <input
-                type="datetime-local"
+                type="date"
                 value={
                   localData.stockxEstimatedDelivery
-                    ? new Date(localData.stockxEstimatedDelivery).toISOString().slice(0, 16)
+                    ? new Date(localData.stockxEstimatedDelivery).toISOString().split("T")[0]
                     : ""
                 }
                 onChange={(e) => update({ stockxEstimatedDelivery: e.target.value })}
                 className="w-full px-3 py-2 border rounded focus:ring-2 focus:ring-blue-500"
               />
               <input
-                type="datetime-local"
+                type="date"
                 value={
-                  localData.stockxDeliveryDate
-                    ? new Date(localData.stockxDeliveryDate).toISOString().slice(0, 16)
+                  localData.stockxLatestEstimatedDelivery
+                    ? new Date(localData.stockxLatestEstimatedDelivery).toISOString().split("T")[0]
                     : ""
                 }
-                onChange={(e) => update({ stockxDeliveryDate: e.target.value })}
+                onChange={(e) => update({ stockxLatestEstimatedDelivery: e.target.value })}
                 className="w-full px-3 py-2 border rounded focus:ring-2 focus:ring-blue-500"
               />
             </div>
 
             <div className="grid grid-cols-2 gap-3">
-              <select
-                value={localData.stockxStatus || "MANUAL"}
-                onChange={(e) => update({ stockxStatus: e.target.value })}
-                className="w-full px-3 py-2 border rounded focus:ring-2 focus:ring-blue-500"
-              >
-                <option value="MANUAL">MANUAL</option>
-                <option value="ORDER_CREATED">ORDER_CREATED</option>
-                <option value="SELLER_SHIPPED">SELLER_SHIPPED</option>
-                <option value="DELIVERED">DELIVERED</option>
-                <option value="CANCELLED">CANCELLED</option>
-              </select>
               <input
                 type="text"
                 value={localData.stockxAwb || ""}
@@ -200,7 +206,20 @@ export default function ManualEntryModal({
                 value={localData.stockxTrackingUrl || ""}
                 onChange={(e) => update({ stockxTrackingUrl: e.target.value })}
                 placeholder="Tracking URL"
-                className="w-full px-3 py-2 border rounded focus:ring-2 focus:ring-blue-500 col-span-2"
+                className="w-full px-3 py-2 border rounded focus:ring-2 focus:ring-blue-500"
+              />
+              <textarea
+                value={
+                  typeof localData.stockxStates === "string"
+                    ? localData.stockxStates
+                    : localData.stockxStates
+                    ? JSON.stringify(localData.stockxStates, null, 2)
+                    : ""
+                }
+                onChange={(e) => update({ stockxStates: e.target.value })}
+                placeholder="StockX states (JSON array)"
+                rows={4}
+                className="w-full px-3 py-2 border rounded focus:ring-2 focus:ring-blue-500 col-span-2 font-mono text-xs"
               />
             </div>
           </div>

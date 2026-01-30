@@ -21,15 +21,17 @@ export const extractAwbFromTrackingUrl = (trackingUrl: string | null): string | 
     for (const param of paramNames) {
       const value = params.get(param);
       if (value && value.length >= 8) {
-        console.log(`[AWB] ✅ Extracted from param "${param}": ${value}`);
-        return value;
+        const normalized = /^\d{13,}$/.test(value) ? value.slice(-12) : value;
+        console.log(`[AWB] ✅ Extracted from param "${param}": ${normalized}`);
+        return normalized;
       }
     }
 
     const pathMatch = trackingUrl.match(/\/([A-Z0-9]{10,})/);
     if (pathMatch && pathMatch[1].length >= 8) {
-      console.log(`[AWB] ✅ Extracted from path: ${pathMatch[1]}`);
-      return pathMatch[1];
+      const normalized = /^\d{13,}$/.test(pathMatch[1]) ? pathMatch[1].slice(-12) : pathMatch[1];
+      console.log(`[AWB] ✅ Extracted from path: ${normalized}`);
+      return normalized;
     }
 
     console.log(`[AWB] ❌ Could not extract AWB from: ${trackingUrl}`);

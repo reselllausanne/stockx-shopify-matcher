@@ -15,9 +15,11 @@ import {
   PieChart,
   Pie,
   Cell,
+  type PieLabelRenderProps,
 } from "recharts";
 import AdsSpendManager from "@/app/components/AdsSpendManager";
 import MonthlyVariableCostsManager from "@/app/components/MonthlyVariableCostsManager";
+import RecurringExpensesManager from "@/app/components/RecurringExpensesManager";
 import { getJson } from "@/app/lib/api";
 import { toNumberSafe } from "@/app/utils/numbers";
 
@@ -39,28 +41,44 @@ type Expense = {
 
 type ExpenseCategorySummary = { categoryName: string; total: number };
 
-type MonthlyMetricsResponse = {
-  success: boolean;
-  months: Array<{
-    month: string;
-    salesChf: number;
-    grossMarginChf: number;
-    adsSpendChf: number;
-    postageShippingCostChf: number;
-    fulfillmentCostChf: number;
-    netAfterVariableCostsChf: number;
-    marginPct: number;
-    notes: string;
-  }>;
+type MonthRow = {
+  month: string;
+  salesChf: number;
+  grossMarginChf: number;
+  adsSpendChf: number;
+  postageShippingCostChf: number;
+  fulfillmentCostChf: number;
+  netAfterVariableCostsChf: number;
+  marginPct: number;
+  notes: string;
+  returnedStockValueChf: number;
 };
 
-const VAT_RATE = 0.023; // 2.3% TVA on all sales
+type YearTotals = {
+  salesChf: number;
+  grossMarginChf: number;
+  adsSpendChf: number;
+  postageShippingCostChf: number;
+  fulfillmentCostChf: number;
+  netAfterVariableCostsChf: number;
+  marginPct: number;
+  returnedStockValueChf: number;
+};
+
+type MonthlyMetricsResponse = {
+  success: boolean;
+  year: number;
+  months: MonthRow[];
+  yearTotals: YearTotals;
+};
+
+const VAT_RATE = 0.021; // 2.3% TVA on all sales
 const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#8884d8', '#82ca9d', '#ffc658', '#ff7c7c'];
 
 export default function FinancialOverviewPage() {
   const [days, setDays] = useState(30);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<"expenses" | "ads" | "variable" | "monthly">("expenses");
+  const [activeTab, setActiveTab] = useState<"expenses" | "ads" | "variable" | "monthly" | "recurring">("expenses");
   
   // Data states
   const [salesData, setSalesData] = useState<SalesRow[]>([]);
@@ -75,6 +93,14 @@ export default function FinancialOverviewPage() {
   const [totalExpenses, setTotalExpenses] = useState(0);
   const [totalVAT, setTotalVAT] = useState(0);
   const [totalAdsSpend, setTotalAdsSpend] = useState(0);
+  const [recurringTotals, setRecurringTotals] = useState({
+    recorded: 0,
+    scheduled: 0,
+    recordedPersonal: 0,
+    recordedBusiness: 0,
+    scheduledPersonal: 0,
+    scheduledBusiness: 0,
+  });
   const [finalMargin, setFinalMargin] = useState(0);
 
   useEffect(() => {
@@ -89,12 +115,13 @@ export default function FinancialOverviewPage() {
       const fromStr = from.toISOString().split('T')[0];
 
       // Fetch all data in parallel
-      const [salesJson, expensesJson, expenseSummaryJson, monthlyJson, adsJson] = await Promise.all([
+      const [salesJson, expensesJson, expenseSummaryJson, monthlyJson, adsJson, recurringJson] = await Promise.all([
         getJson<any>(`/api/metrics/margin?days=${days}`),
         getJson<any>(`/api/expenses?from=${fromStr}`),
         getJson<any>(`/api/expenses/summary?from=${fromStr}`),
         getJson<MonthlyMetricsResponse>(`/api/metrics/monthly?year=${new Date().getFullYear()}`),
         getJson<any>(`/api/ads-spend?from=${fromStr}`),
+        getJson<any>(`/api/recurring-expenses`),
       ]);
 
       // Process sales data (defensive: API may wrap rows)
@@ -114,6 +141,96 @@ export default function FinancialOverviewPage() {
       const totalExp = expensesList.reduce((sum: number, e: Expense) => sum + toNumberSafe(e.amount, 0), 0);
       setExpensesData(expensesList);
       setTotalExpenses(totalExp);
+
+      // Recurring expenses (scheduled + recorded)
+      const recurringItems = recurringJson.data?.items || [];
+      const recurringMarker = (note?: string | null) => {
+        if (!note) return null;
+        const match = note.match(/\[RECURRING:([^\]]+)\]/);
+        return match?.[1] || null;
+      };
+
+      const recordedByKey = new Set<string>();
+      const recordedByDay = new Map<string, number>();
+      let recordedTotal = 0;
+      let recordedPersonal = 0;
+      let recordedBusiness = 0;
+
+      expensesList.forEach((exp) => {
+        const rid = recurringMarker(exp.note);
+        if (!rid) return;
+        const dateKey = new Date(exp.date).toISOString().split("T")[0];
+        recordedByKey.add(`${rid}|${dateKey}`);
+        const amount = toNumberSafe(exp.amount, 0);
+        recordedTotal += amount;
+        if (exp.isBusiness) recordedBusiness += amount;
+        else recordedPersonal += amount;
+        recordedByDay.set(dateKey, (recordedByDay.get(dateKey) || 0) + amount);
+      });
+
+      const fromDate = new Date(`${fromStr}T00:00:00.000Z`);
+      const toDate = new Date();
+      toDate.setUTCHours(23, 59, 59, 999);
+
+      const getRunDate = (year: number, monthIndex: number, dayOfMonth: number) => {
+        const lastDay = new Date(Date.UTC(year, monthIndex + 1, 0)).getUTCDate();
+        const day = Math.min(Math.max(dayOfMonth, 1), lastDay);
+        return new Date(Date.UTC(year, monthIndex, day, 0, 0, 0, 0));
+      };
+
+      const scheduledByDay = new Map<string, { total: number; personal: number; business: number }>();
+      let scheduledTotal = 0;
+      let scheduledPersonal = 0;
+      let scheduledBusiness = 0;
+
+      const fromMonth = new Date(Date.UTC(fromDate.getUTCFullYear(), fromDate.getUTCMonth(), 1));
+      const toMonth = new Date(Date.UTC(toDate.getUTCFullYear(), toDate.getUTCMonth(), 1));
+
+      recurringItems.forEach((item: any) => {
+        if (!item.active) return;
+        const start = item.startDate ? new Date(item.startDate) : new Date();
+        if (isNaN(start.getTime())) return;
+        const startMonth = new Date(Date.UTC(start.getUTCFullYear(), start.getUTCMonth(), 1));
+        const interval = Math.max(Number(item.intervalMonths) || 1, 1);
+        const dayOfMonth = Number(item.dayOfMonth) || 1;
+
+        for (
+          let cursor = new Date(fromMonth);
+          cursor <= toMonth;
+          cursor = new Date(Date.UTC(cursor.getUTCFullYear(), cursor.getUTCMonth() + 1, 1))
+        ) {
+          const monthsDiff =
+            (cursor.getUTCFullYear() - startMonth.getUTCFullYear()) * 12 +
+            (cursor.getUTCMonth() - startMonth.getUTCMonth());
+          if (monthsDiff < 0 || monthsDiff % interval !== 0) continue;
+
+          const runDate = getRunDate(cursor.getUTCFullYear(), cursor.getUTCMonth(), dayOfMonth);
+          if (runDate < start || runDate < fromDate || runDate > toDate) continue;
+
+          const dateKey = runDate.toISOString().split("T")[0];
+          if (recordedByKey.has(`${item.id}|${dateKey}`)) continue;
+
+          const amount = toNumberSafe(item.amount, 0);
+          scheduledTotal += amount;
+          if (item.isBusiness) scheduledBusiness += amount;
+          else scheduledPersonal += amount;
+
+          const cur = scheduledByDay.get(dateKey) || { total: 0, personal: 0, business: 0 };
+          cur.total += amount;
+          if (item.isBusiness) cur.business += amount;
+          else cur.personal += amount;
+          scheduledByDay.set(dateKey, cur);
+        }
+      });
+
+      setRecurringTotals({
+        recorded: recordedTotal,
+        scheduled: scheduledTotal,
+        recordedPersonal,
+        recordedBusiness,
+        scheduledPersonal,
+        scheduledBusiness,
+      });
 
       // Process ads spend data
       const adsRecords = adsJson.data?.records || [];
@@ -139,9 +256,12 @@ export default function FinancialOverviewPage() {
             postageShippingCostChf: 0,
             fulfillmentCostChf: 0,
             netAfterVariableCostsChf: 0,
+            marginPct: 0,
+            returnedStockValueChf: 0,
           };
         const year = payload?.year ?? payload?.data?.year ?? new Date().getFullYear();
-        return { months, yearTotals, year };
+        const success = payload?.success ?? payload?.data?.success ?? true;
+        return { months, yearTotals, year, success };
       };
       setMonthlyData(normMonthly(monthlyJson.data ?? monthlyJson));
 
@@ -184,12 +304,52 @@ export default function FinancialOverviewPage() {
           personalExpenses: 0,
           businessExpenses: 0,
           adsSpend: 0,
+          recurringExpenses: 0,
           vat: 0,
           margin: 0
         };
         existing.personalExpenses = amounts.personal;
         existing.businessExpenses = amounts.business;
         existing.expenses = amounts.personal + amounts.business;
+        dailyMap.set(date, existing);
+      });
+
+      // Apply recorded recurring (for display only)
+      recordedByDay.forEach((amount, date) => {
+        const existing = dailyMap.get(date) || {
+          date,
+          sales: 0,
+          costs: 0,
+          expenses: 0,
+          personalExpenses: 0,
+          businessExpenses: 0,
+          adsSpend: 0,
+          recurringExpenses: 0,
+          vat: 0,
+          margin: 0
+        };
+        existing.recurringExpenses += amount;
+        dailyMap.set(date, existing);
+      });
+
+      // Apply scheduled recurring (adds to expenses + recurring)
+      scheduledByDay.forEach((amounts, date) => {
+        const existing = dailyMap.get(date) || {
+          date,
+          sales: 0,
+          costs: 0,
+          expenses: 0,
+          personalExpenses: 0,
+          businessExpenses: 0,
+          adsSpend: 0,
+          recurringExpenses: 0,
+          vat: 0,
+          margin: 0
+        };
+        existing.personalExpenses += amounts.personal;
+        existing.businessExpenses += amounts.business;
+        existing.expenses += amounts.total;
+        existing.recurringExpenses += amounts.total;
         dailyMap.set(date, existing);
       });
 
@@ -227,8 +387,8 @@ export default function FinancialOverviewPage() {
 
       setDailyFinancials(dailyArray);
 
-      // Calculate overall final margin (includes ads)
-      const finalMarg = totalRev - totalSupplierCost - totalExp - totalAds - vatAmount;
+      // Calculate overall final margin (includes ads + scheduled recurring)
+      const finalMarg = totalRev - totalSupplierCost - totalExp - scheduledTotal - totalAds - vatAmount;
       setFinalMargin(finalMarg);
 
     } catch (error) {
@@ -264,8 +424,16 @@ export default function FinancialOverviewPage() {
     );
   }
 
-  const personalExpenses = expensesData.filter((e: any) => !e.isBusiness).reduce((sum: number, e: any) => sum + e.amount, 0);
-  const businessExpenses = expensesData.filter((e: any) => e.isBusiness).reduce((sum: number, e: any) => sum + e.amount, 0);
+  const personalExpensesBase = expensesData
+    .filter((e: any) => !e.isBusiness)
+    .reduce((sum: number, e: any) => sum + e.amount, 0);
+  const businessExpensesBase = expensesData
+    .filter((e: any) => e.isBusiness)
+    .reduce((sum: number, e: any) => sum + e.amount, 0);
+  const personalExpenses = personalExpensesBase + recurringTotals.scheduledPersonal;
+  const businessExpenses = businessExpensesBase + recurringTotals.scheduledBusiness;
+  const recurringTotal = recurringTotals.recorded + recurringTotals.scheduled;
+  const allExpensesTotal = totalExpenses + recurringTotals.scheduled;
 
   return (
     <div className="min-h-screen bg-gray-50 p-8">
@@ -344,6 +512,16 @@ export default function FinancialOverviewPage() {
             >
               📅 Monthly View
             </button>
+            <button
+              onClick={() => setActiveTab("recurring")}
+              className={`py-4 px-1 border-b-2 font-medium text-sm ${
+                activeTab === "recurring"
+                  ? "border-purple-500 text-purple-600"
+                  : "border-transparent text-gray-500 hover:text-gray-700"
+              }`}
+            >
+              🔁 Recurring
+            </button>
           </nav>
         </div>
 
@@ -388,9 +566,11 @@ export default function FinancialOverviewPage() {
           </div>
           
           <div className="bg-white p-6 rounded-lg shadow">
-                <div className="text-sm font-medium text-gray-500">All Expenses</div>
-            <div className="text-2xl font-bold text-red-600">-CHF {totalExpenses.toFixed(2)}</div>
-                <div className="text-xs text-gray-500 mt-1">Personal + Business</div>
+            <div className="text-sm font-medium text-gray-500">All Expenses</div>
+            <div className="text-2xl font-bold text-red-600">-CHF {allExpensesTotal.toFixed(2)}</div>
+            <div className="text-xs text-gray-500 mt-1">
+              Recurring: CHF {recurringTotal.toFixed(2)} • One-off: CHF {(allExpensesTotal - recurringTotal).toFixed(2)}
+            </div>
           </div>
 
           <div className="bg-white p-6 rounded-lg shadow">
@@ -434,6 +614,7 @@ export default function FinancialOverviewPage() {
                   <Bar dataKey="personalExpenses" name="Personal Expenses" fill="#fbbf24" stackId="expenses" />
                   <Bar dataKey="businessExpenses" name="Business Expenses" fill="#ef4444" stackId="expenses" />
               <Bar dataKey="adsSpend" name="Ads Spend" fill="#fb923c" />
+              <Bar dataKey="recurringExpenses" name="Recurring" fill="#8b5cf6" stackId="expenses" />
               <Bar dataKey="vat" name="VAT" fill="#a855f7" />
               <Line type="monotone" dataKey="margin" name="Final Margin" stroke="#10b981" strokeWidth={3} />
             </ComposedChart>
@@ -449,11 +630,13 @@ export default function FinancialOverviewPage() {
                 <Pie
                   data={expensesByCategory}
                   dataKey="total"
-                      nameKey="categoryName"
+                  nameKey="categoryName"
                   cx="50%"
                   cy="50%"
                   outerRadius={100}
-                      label={(entry) => `${entry.categoryName}: CHF ${entry.total.toFixed(0)}`}
+                  label={({ name, value }: PieLabelRenderProps) =>
+                    `${name}: CHF ${Number(value ?? 0).toFixed(0)}`
+                  }
                 >
                   {expensesByCategory.map((entry, index) => (
                     <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
@@ -479,19 +662,24 @@ export default function FinancialOverviewPage() {
               </div>
               
               <div className="flex justify-between items-center p-3 bg-gray-50 rounded">
-                    <span className="font-medium text-gray-700">💸 All Expenses</span>
-                <span className="text-lg font-bold text-red-600">- CHF {totalExpenses.toFixed(2)}</span>
+                <span className="font-medium text-gray-700">💸 All Expenses (incl. recurring)</span>
+                <span className="text-lg font-bold text-red-600">- CHF {allExpensesTotal.toFixed(2)}</span>
               </div>
                   
-                  <div className="flex justify-between items-center p-3 bg-gray-100 rounded text-sm ml-4">
-                    <span className="text-gray-600">├─ Personal</span>
-                    <span className="font-medium text-gray-700">CHF {personalExpenses.toFixed(2)}</span>
-                  </div>
+              <div className="flex justify-between items-center p-3 bg-gray-100 rounded text-sm ml-4">
+                <span className="text-gray-600">├─ Recurring</span>
+                <span className="font-medium text-gray-700">CHF {recurringTotal.toFixed(2)}</span>
+              </div>
                   
-                  <div className="flex justify-between items-center p-3 bg-gray-100 rounded text-sm ml-4">
-                    <span className="text-gray-600">└─ Business</span>
-                    <span className="font-medium text-gray-700">CHF {businessExpenses.toFixed(2)}</span>
-                  </div>
+              <div className="flex justify-between items-center p-3 bg-gray-100 rounded text-sm ml-4">
+                <span className="text-gray-600">├─ Personal</span>
+                <span className="font-medium text-gray-700">CHF {personalExpenses.toFixed(2)}</span>
+              </div>
+              
+              <div className="flex justify-between items-center p-3 bg-gray-100 rounded text-sm ml-4">
+                <span className="text-gray-600">└─ Business</span>
+                <span className="font-medium text-gray-700">CHF {businessExpenses.toFixed(2)}</span>
+              </div>
               
               <div className="flex justify-between items-center p-3 bg-gray-50 rounded">
                     <span className="font-medium text-gray-700">📢 Ads Spend</span>
@@ -535,6 +723,11 @@ export default function FinancialOverviewPage() {
           <MonthlyVariableCostsManager />
         )}
 
+        {/* Recurring Expenses Tab */}
+        {activeTab === "recurring" && (
+          <RecurringExpensesManager />
+        )}
+
         {/* Monthly View Tab */}
         {activeTab === "monthly" && monthlyData && (
           <div className="space-y-6">
@@ -553,7 +746,7 @@ export default function FinancialOverviewPage() {
               </div>
 
               {/* Year Totals */}
-              <div className="grid grid-cols-2 md:grid-cols-6 gap-4 mb-6">
+              <div className="grid grid-cols-2 md:grid-cols-7 gap-4 mb-6">
                 <div className="bg-blue-50 p-4 rounded-lg">
                   <div className="text-xs text-gray-600">Sales</div>
                   <div className="text-lg font-bold text-blue-600">
@@ -584,6 +777,12 @@ export default function FinancialOverviewPage() {
                     CHF {monthlyData.yearTotals.fulfillmentCostChf.toFixed(0)}
                   </div>
                 </div>
+                <div className="bg-teal-50 p-4 rounded-lg">
+                  <div className="text-xs text-gray-600">Returned Stock</div>
+                  <div className="text-lg font-bold text-teal-600">
+                    CHF {monthlyData.yearTotals.returnedStockValueChf.toFixed(0)}
+                  </div>
+                </div>
                 <div className="bg-emerald-50 p-4 rounded-lg">
                   <div className="text-xs text-gray-600">Net</div>
                   <div className="text-lg font-bold text-emerald-600">
@@ -604,6 +803,7 @@ export default function FinancialOverviewPage() {
                       <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Ads</th>
                       <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Postage</th>
                       <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Fulfillment</th>
+                      <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Returned Stock</th>
                       <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Net</th>
                 </tr>
               </thead>
@@ -630,6 +830,9 @@ export default function FinancialOverviewPage() {
                     </td>
                         <td className="px-4 py-3 whitespace-nowrap text-sm text-right text-pink-600">
                           CHF {month.fulfillmentCostChf.toFixed(2)}
+                    </td>
+                        <td className="px-4 py-3 whitespace-nowrap text-sm text-right text-teal-600">
+                          CHF {(month.returnedStockValueChf || 0).toFixed(2)}
                     </td>
                         <td className={`px-4 py-3 whitespace-nowrap text-sm text-right font-bold ${
                           month.netAfterVariableCostsChf >= 0 ? 'text-emerald-600' : 'text-red-600'

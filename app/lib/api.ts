@@ -2,7 +2,7 @@ type JsonResponse<T> = { ok: boolean; status: number; data: T };
 
 async function requestJson<T>(
   url: string,
-  method: "GET" | "POST" | "DELETE",
+  method: "GET" | "POST" | "PUT" | "DELETE",
   body?: any
 ): Promise<JsonResponse<T>> {
   const res = await fetch(url, {
@@ -24,4 +24,8 @@ export async function getJson<T>(url: string): Promise<JsonResponse<T>> {
 
 export async function delJson<T>(url: string, body?: any): Promise<JsonResponse<T>> {
   return requestJson<T>(url, "DELETE", body);
+}
+
+export async function putJson<T>(url: string, body: any): Promise<JsonResponse<T>> {
+  return requestJson<T>(url, "PUT", body);
 }

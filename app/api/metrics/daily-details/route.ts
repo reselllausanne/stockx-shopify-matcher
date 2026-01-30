@@ -53,6 +53,9 @@ export async function GET(req: NextRequest) {
         manualRevenueAdjustment: true,
         supplierCost: true,
         manualCostOverride: true,
+        returnReason: true,
+        returnFeePercent: true,
+        returnFeeAmountChf: true,
         // @ts-expect-error pending Prisma client regeneration
         shopifyCreatedAt: true,
         stockxOrderNumber: true,
@@ -61,8 +64,16 @@ export async function GET(req: NextRequest) {
     });
 
     const rows = matches.map((m) => {
-      const revenue =
+      const baseRevenue =
         toNumberSafe(m.shopifyTotalPrice, 0) + toNumberSafe(m.manualRevenueAdjustment, 0);
+      const returnFeePercent = toNumberSafe(m.returnFeePercent, 0);
+      const returnFeeAmount = m.returnReason
+        ? toNumberSafe(
+            m.returnFeeAmountChf,
+            returnFeePercent > 0 ? (toNumberSafe(m.shopifyTotalPrice, 0) * returnFeePercent) / 100 : 0
+          )
+        : 0;
+      const revenue = m.returnReason ? returnFeeAmount : baseRevenue;
       const cost = toNumberSafe(m.manualCostOverride, 0) || toNumberSafe(m.supplierCost, 0);
       const margin = revenue - cost;
 
@@ -75,6 +86,7 @@ export async function GET(req: NextRequest) {
         shopifyCreatedAt: m.shopifyCreatedAt,
         stockxOrderNumber: m.stockxOrderNumber,
         supplierSource: m.supplierSource,
+        returnReason: m.returnReason,
         revenue,
         cost,
         margin,

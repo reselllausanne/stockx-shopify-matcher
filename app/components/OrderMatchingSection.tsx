@@ -222,6 +222,7 @@ export default function OrderMatchingSection({
                           <div className="mt-1 text-xs text-gray-600">{match.reasons.join(" • ")}</div>
                         </div>
 
+
                         <div className="mt-3 pt-2 border-t border-gray-200">
                           {(() => {
                             const shopifyRevenue = parseFloat(shopify.totalPrice) || 0;

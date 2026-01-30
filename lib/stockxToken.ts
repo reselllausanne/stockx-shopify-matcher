@@ -6,20 +6,17 @@ import { prisma } from "@/app/lib/prisma";
  */
 export async function getSupplierToken(): Promise<string | null> {
   try {
-    const result = await prisma.$queryRaw<Array<{ token: string; expires_at: Date }>>`
-      SELECT token, expires_at 
-      FROM "StockXToken" 
-      ORDER BY created_at DESC 
-      LIMIT 1;
-    `;
+    const tokenData = await prisma.stockXToken.findFirst({
+      orderBy: { createdAt: "desc" },
+      select: { token: true, expiresAt: true },
+    });
 
-    if (!result || result.length === 0) {
+    if (!tokenData) {
       console.warn("[TOKEN] No token found in database");
       return null;
     }
 
-    const tokenData = result[0];
-    const isExpired = new Date() > tokenData.expires_at;
+    const isExpired = new Date() > tokenData.expiresAt;
 
     if (isExpired) {
       console.warn("[TOKEN] Token expired, cron should refresh soon");
@@ -38,21 +35,18 @@ export async function getSupplierToken(): Promise<string | null> {
  */
 export async function tokenNeedsRefresh(): Promise<boolean> {
   try {
-    const result = await prisma.$queryRaw<Array<{ expires_at: Date }>>`
-      SELECT expires_at 
-      FROM "StockXToken" 
-      ORDER BY created_at DESC 
-      LIMIT 1;
-    `;
+    const tokenData = await prisma.stockXToken.findFirst({
+      orderBy: { createdAt: "desc" },
+      select: { expiresAt: true },
+    });
 
-    if (!result || result.length === 0) {
+    if (!tokenData) {
       return true; // No token = needs refresh
     }
 
-    const expiresAt = new Date(result[0].expires_at);
     const twoHoursFromNow = new Date(Date.now() + 2 * 60 * 60 * 1000);
 
-    return expiresAt < twoHoursFromNow;
+    return new Date(tokenData.expiresAt) < twoHoursFromNow;
   } catch (error) {
     return true; // Error = assume needs refresh
   }

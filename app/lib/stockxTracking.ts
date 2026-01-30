@@ -14,9 +14,46 @@
  * Treat as SUCCESS if trackingUrl exists even when json.errors exists.
  */
 
+import crypto from "node:crypto";
 import { getSupplierToken } from "@/lib/stockxToken";
 
 const STOCKX_GRAPHQL_URL = "https://stockx.com/api/p/e";
+
+const BUYING_SEARCH_QUERY = `
+  query BuyingSearch(
+    $first: Int
+    $after: String
+    $currencyCode: CurrencyCode
+    $query: String
+    $state: BuyingGeneralState
+    $sort: BuyingSortInput
+    $order: AscDescOrderInput
+  ) {
+    viewer {
+      buying(
+        query: $query
+        state: $state
+        currencyCode: $currencyCode
+        first: $first
+        after: $after
+        sort: $sort
+        order: $order
+      ) {
+        edges {
+          node {
+            chainId
+            orderId
+            orderNumber
+          }
+        }
+        pageInfo {
+          hasNextPage
+          endCursor
+        }
+      }
+    }
+  }
+`;
 
 /**
  * Extract AWB (Air Waybill / tracking number) from tracking URL
@@ -30,20 +67,30 @@ export function extractAwb(trackingUrl: string | null | undefined): string | nul
     const url = new URL(trackingUrl);
     
     // Try common query parameter names
-    const params = ['AWB', 'awb', 'trackingNumber', 'tracking_number', 'waybill', 'consignment', 'shipmentNumber'];
+    const params = [
+      "AWB",
+      "awb",
+      "trackingNumber",
+      "tracking_number",
+      "waybill",
+      "consignment",
+      "shipmentNumber",
+      "tracknum",
+      "tracknumbers",
+    ];
     for (const param of params) {
       const value = url.searchParams.get(param);
       if (value && value.length >= 8) {
-        return value;
+        return /^\d{13,}$/.test(value) ? value.slice(-12) : value;
       }
     }
     
     // Try to extract from pathname (e.g., /track/ABC123456789)
-    const pathSegments = url.pathname.split('/').filter(s => s.length > 0);
+    const pathSegments = url.pathname.split("/").filter((s) => s.length > 0);
     for (const segment of pathSegments) {
       // Look for alphanumeric segments >= 8 chars (likely tracking numbers)
       if (/^[A-Z0-9]{8,}$/i.test(segment)) {
-        return segment;
+        return /^\d{13,}$/.test(segment) ? segment.slice(-12) : segment;
       }
     }
     
@@ -52,6 +99,33 @@ export function extractAwb(trackingUrl: string | null | undefined): string | nul
     console.error('[AWB] Error extracting AWB from URL:', error);
     return null;
   }
+}
+
+export type StockXState = {
+  title?: string | null;
+  subtitle?: string | null;
+  status?: string | null;
+  progress?: string | null;
+  meta?: string | null;
+  sourceType?: string | null;
+};
+
+export function normalizeStockXStates(states: any[] | null | undefined): StockXState[] | null {
+  if (!Array.isArray(states) || states.length === 0) return null;
+  return states.map((state) => ({
+    title: state?.title ?? null,
+    subtitle: state?.subtitle ?? null,
+    status: state?.status ?? null,
+    progress: state?.progress ?? null,
+    meta: state?.meta ?? null,
+    sourceType: state?.sourceType ?? null,
+  }));
+}
+
+export function hashStockXStates(states: StockXState[] | null | undefined): string | null {
+  if (!states || states.length === 0) return null;
+  const payload = JSON.stringify(states);
+  return crypto.createHash("sha256").update(payload).digest("hex");
 }
 
 // ✅ ENHANCED Query B: Includes cost fields, excludes pickUpDetails to avoid 404 errors
@@ -74,6 +148,15 @@ const GET_BUY_ORDER_FULL_QUERY = `
           currentStatus {
             key
             completionStatus
+          }
+          checkoutType
+          states {
+            title
+            subtitle
+            status
+            progress
+            meta
+            sourceType
           }
           estimatedDeliveryDateRange {
             estimatedDeliveryDate
@@ -135,6 +218,7 @@ const GET_BUY_ORDER_FULL_QUERY = `
 export interface StockXFullOrderResult {
   orderNumber: string;
   chainId: string;
+  checkoutType: string | null;
   status: string | null;
   statusKey: string | null;
   trackingUrl: string | null;
@@ -149,6 +233,7 @@ export interface StockXFullOrderResult {
   brand: string | null;
   size: string | null;
   imageUrl: string | null;
+  states: StockXState[] | null;
 }
 
 // Legacy type for backward compatibility
@@ -166,6 +251,15 @@ export interface StockXFullOrderResponse {
           key: string;
           completionStatus: string;
         } | null;
+        checkoutType?: string | null;
+        states?: Array<{
+          title?: string | null;
+          subtitle?: string | null;
+          status?: string | null;
+          progress?: string | null;
+          meta?: string | null;
+          sourceType?: string | null;
+        }> | null;
         estimatedDeliveryDateRange?: {
           estimatedDeliveryDate?: string | null;
           latestEstimatedDeliveryDate?: string | null;
@@ -232,6 +326,90 @@ export interface StockXFullOrderResponse {
 // Legacy type for backward compatibility
 export type StockXTrackingResponse = StockXFullOrderResponse;
 
+type StockXBuyingSearchResponse = {
+  data?: {
+    viewer?: {
+      buying?: {
+        edges?: Array<{
+          node?: {
+            chainId?: string | null;
+            orderId?: string | null;
+            orderNumber?: string | null;
+          } | null;
+        }>;
+      } | null;
+    } | null;
+  };
+  errors?: Array<{ message: string }>;
+};
+
+export async function findStockXIdsByOrderNumber(orderNumber: string) {
+  const trimmed = String(orderNumber || "").trim();
+  if (!trimmed) {
+    return null;
+  }
+
+  const token = await getSupplierToken();
+  if (!token) {
+    throw new Error("Supplier token not found or expired in DB");
+  }
+
+  const headers: Record<string, string> = {
+    "content-type": "application/json",
+    "Authorization": `Bearer ${token}`,
+    "apollographql-client-name": "Iron",
+    "apollographql-client-version": "2026.01.11.01",
+    "app-platform": "Iron",
+    "app-version": "2026.01.11.01",
+    "accept": "application/json",
+  };
+
+  const body = {
+    operationName: "BuyingSearch",
+    query: BUYING_SEARCH_QUERY,
+    variables: {
+      first: 50,
+      after: "",
+      currencyCode: "CHF",
+      query: trimmed,
+      state: null,
+      sort: "MATCHED_AT",
+      order: "DESC",
+    },
+  };
+
+  const response = await fetch(STOCKX_GRAPHQL_URL, {
+    method: "POST",
+    headers,
+    body: JSON.stringify(body),
+  });
+
+  if (!response.ok) {
+    const text = await response.text().catch(() => "");
+    throw new Error(`HTTP ${response.status}: ${text.slice(0, 200)}`);
+  }
+
+  const json: StockXBuyingSearchResponse = await response.json();
+  if (json.errors?.length) {
+    throw new Error(`GraphQL errors: ${JSON.stringify(json.errors)}`);
+  }
+
+  const edges = json.data?.viewer?.buying?.edges ?? [];
+  const match = edges
+    .map((edge) => edge?.node)
+    .find((node) => node?.orderNumber === trimmed);
+
+  if (!match?.chainId || !match?.orderId) {
+    return null;
+  }
+
+  return {
+    chainId: match.chainId,
+    orderId: match.orderId,
+    orderNumber: match.orderNumber || trimmed,
+  };
+}
+
 /**
  * Fetch FULL supplier order details from stockx.com GraphQL (Query B)
  * Includes tracking, status, cost, and product info
@@ -263,9 +441,9 @@ export async function fetchStockXTracking(
     "content-type": "application/json",
     "Authorization": `Bearer ${token}`, // Use same token as Buying
     "apollographql-client-name": "Iron",
-    "apollographql-client-version": "2026.01.04.01",
+    "apollographql-client-version": "2026.01.11.01",
     "app-platform": "Iron",
-    "app-version": "2026.01.04.01",
+    "app-version": "2026.01.11.01",
     "accept": "application/json",
   };
 
@@ -304,6 +482,8 @@ export async function fetchStockXTracking(
       const status = order?.status || null;
       const statusKey = order?.currentStatus?.key || null;
       const orderNumberFromResponse = order?.orderNumber || orderId;
+      const checkoutType = order?.checkoutType || null;
+      const states = normalizeStockXStates(order?.states);
       
       // ✅ STEP B: Derive ALL-IN supplierCost from Query B
       let supplierCostCHF: number | null = null;
@@ -357,6 +537,7 @@ export async function fetchStockXTracking(
         return {
           orderNumber: orderNumberFromResponse,
           chainId,
+          checkoutType,
           status,
           statusKey,
           trackingUrl,
@@ -371,6 +552,7 @@ export async function fetchStockXTracking(
           brand,
           size,
           imageUrl,
+          states,
         };
       }
 

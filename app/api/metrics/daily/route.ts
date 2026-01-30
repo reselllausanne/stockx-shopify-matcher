@@ -14,6 +14,8 @@ type DailyRow = {
   costChf: number;
   marginChf: number;
   marginPct: number;
+  returnMarginLostChf: number;
+  returnedStockValueChf: number;
   adsSpendChf: number;
   netAfterAdsChf: number;
   ordersCount: number;
@@ -66,6 +68,10 @@ export async function GET(req: NextRequest) {
         manualRevenueAdjustment: true,
         supplierCost: true,
         manualCostOverride: true,
+        returnReason: true,
+        returnFeePercent: true,
+        returnFeeAmountChf: true,
+        returnedStockValueChf: true,
         createdAt: true,
         // @ts-expect-error pending Prisma client regeneration
         shopifyCreatedAt: true,
@@ -86,6 +92,8 @@ export async function GET(req: NextRequest) {
           costChf: 0,
           marginChf: 0,
           marginPct: 0,
+          returnMarginLostChf: 0,
+          returnedStockValueChf: 0,
           adsSpendChf: 0,
           netAfterAdsChf: 0,
           ordersCount: 0,
@@ -101,8 +109,17 @@ export async function GET(req: NextRequest) {
       // @ts-expect-error pending Prisma client regeneration
       const sellDateRaw = m.shopifyCreatedAt;
       const cost = toNumberSafe(m.manualCostOverride, 0) || toNumberSafe(m.supplierCost, 0);
-      const revenue =
+      const baseRevenue =
         toNumberSafe(m.shopifyTotalPrice, 0) + toNumberSafe(m.manualRevenueAdjustment, 0);
+      const returnFeePercent = toNumberSafe(m.returnFeePercent, 0);
+      const returnFeeAmount = m.returnReason
+        ? toNumberSafe(
+            m.returnFeeAmountChf,
+            returnFeePercent > 0 ? (toNumberSafe(m.shopifyTotalPrice, 0) * returnFeePercent) / 100 : 0
+          )
+        : 0;
+      const revenue = m.returnReason ? returnFeeAmount : baseRevenue;
+      const returnedStockValue = toNumberSafe(m.returnedStockValueChf, 0);
 
       if (!sellDateRaw) {
         ensureDay("missing_sell_date").missingSellDateCount += 1;
@@ -120,7 +137,7 @@ export async function GET(req: NextRequest) {
         day.ordersCount = set.size;
       }
 
-      if (cost <= 0 || revenue <= 0) {
+      if (!m.returnReason && (cost <= 0 || revenue <= 0)) {
         day.missingCostCount += 1;
         continue;
       }
@@ -128,6 +145,10 @@ export async function GET(req: NextRequest) {
       day.salesChf += revenue;
       day.costChf += cost;
       day.marginChf += revenue - cost;
+      day.returnedStockValueChf += returnedStockValue;
+      if (m.returnReason) {
+        day.returnMarginLostChf += Math.max(cost - revenue, 0);
+      }
     }
 
     for (const ads of adsSpendRecords) {
@@ -146,6 +167,8 @@ export async function GET(req: NextRequest) {
           salesChf: Number(row.salesChf.toFixed(2)),
           costChf: Number(row.costChf.toFixed(2)),
           marginChf: Number(row.marginChf.toFixed(2)),
+          returnMarginLostChf: Number(row.returnMarginLostChf.toFixed(2)),
+          returnedStockValueChf: Number(row.returnedStockValueChf.toFixed(2)),
           adsSpendChf: Number(row.adsSpendChf.toFixed(2)),
           netAfterAdsChf: Number(netAfterAds.toFixed(2)),
         };
@@ -159,6 +182,8 @@ export async function GET(req: NextRequest) {
         acc.marginChf += r.marginChf;
         acc.adsSpendChf += r.adsSpendChf;
         acc.netAfterAdsChf += r.netAfterAdsChf;
+        acc.returnMarginLostChf += r.returnMarginLostChf;
+        acc.returnedStockValueChf += r.returnedStockValueChf;
         acc.ordersCount += r.ordersCount;
         acc.lineItemsCount += r.lineItemsCount;
         acc.missingCostCount += r.missingCostCount;
@@ -171,6 +196,8 @@ export async function GET(req: NextRequest) {
         marginChf: 0,
         adsSpendChf: 0,
         netAfterAdsChf: 0,
+        returnMarginLostChf: 0,
+        returnedStockValueChf: 0,
         ordersCount: 0,
         lineItemsCount: 0,
         missingCostCount: 0,

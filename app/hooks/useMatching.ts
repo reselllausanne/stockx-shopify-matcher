@@ -50,6 +50,9 @@ export function useMatching({ enrichedOrders, orders, pricingByOrder, reloadDb }
       string,
       {
         status: string;
+        returnReason: string;
+        returnFeePercent: string;
+        returnedStockValue: string;
         adjustment: string;
         note: string;
         manualCost: string;
@@ -57,6 +60,86 @@ export function useMatching({ enrichedOrders, orders, pricingByOrder, reloadDb }
     >
   >({});
   const [manualOverrideLoading, setManualOverrideLoading] = useState<Record<string, boolean>>({});
+
+  const runMatching = async (items: ShopifyLineItem[]) => {
+    setShopifyItems(items);
+
+    // Normalize Supplier orders for matching (use enriched if available)
+    const sourceOrders = enrichedOrders || orders;
+    console.log(`[MATCHING] Using ${enrichedOrders ? "ENRICHED" : "BASIC"} orders (${sourceOrders.length} total)`);
+
+    const sourceIds = sourceOrders.map((o: any) => o.orderId);
+    const uniqueSourceIds = new Set(sourceIds);
+    if (uniqueSourceIds.size !== sourceOrders.length) {
+      console.error(
+        `[MATCHING] ⚠️ WARNING: Source has duplicates! ${sourceOrders.length} orders but only ${uniqueSourceIds.size} unique IDs`
+      );
+    }
+
+    const normalizedSupplier: NormalizedSupplierOrder[] = sourceOrders.map((o: any) => {
+      const supplierCostFromB = (o as any).supplierCost ?? null;
+      const supplierCostFromPricing =
+        o.orderNumber && pricingByOrder[o.orderNumber]?.total != null ? pricingByOrder[o.orderNumber]!.total : null;
+      const finalTotalTTC = supplierCostFromB ?? supplierCostFromPricing;
+
+      return {
+        supplierOrderNumber: o.orderNumber || "",
+        chainId: o.chainId || "",
+        orderId: o.orderId || "",
+        purchaseDate: o.purchaseDate || "",
+        offerAmount: o.amount,
+        totalTTC: finalTotalTTC,
+        productTitle: o.displayName,
+        skuKey: o.skuKey,
+        sizeEU: o.size,
+        statusKey: o.statusKey ?? o.statusKeyB ?? o.statusB ?? null,
+        statusTitle: o.statusTitle ?? o.statusB ?? null,
+        currencyCode: o.currencyCode,
+        estimatedDeliveryDate:
+          (o as any).estimatedDeliveryDate ??
+          (o as any).estimatedDeliveryB ??
+          (o as any).estimatedDeliveryDateRange?.estimatedDeliveryDate ??
+          null,
+        latestEstimatedDeliveryDate:
+          (o as any).latestEstimatedDeliveryDate ??
+          (o as any).latestEstimatedDeliveryB ??
+          (o as any).estimatedDeliveryDateRange?.latestEstimatedDeliveryDate ??
+          null,
+        awb: (o as any).awb || null,
+        trackingUrl: (o as any).trackingUrl || null,
+        stockxCheckoutType: o.stockxCheckoutType ?? null,
+        stockxStates: o.stockxStates ?? null,
+      };
+    });
+
+    console.log(`[MATCHING] Normalized ${normalizedSupplier.length} supplier orders for matching`);
+    const withSupplierCostB = normalizedSupplier.filter((o) => o.totalTTC !== null).length;
+    console.log(`[MATCHING] ${withSupplierCostB}/${normalizedSupplier.length} orders have totalTTC (Query B supplier cost)`);
+
+    // 🔒 Filter out already matched supplier orders (DB)
+    let availableSupplier = normalizedSupplier;
+    try {
+      const dbRes = await getJson<any>("/api/db/matches");
+      if (dbRes.ok) {
+        const usedSupplierNumbers = new Set(dbRes.data?.matches?.map((m: any) => m.supplierOrderNumber));
+        availableSupplier = normalizedSupplier.filter((order) => !usedSupplierNumbers.has(order.supplierOrderNumber));
+        const filteredOut = normalizedSupplier.filter((order) => usedSupplierNumbers.has(order.supplierOrderNumber));
+        console.log(
+          `🔒 Filtered out ${filteredOut.length} already-matched Supplier orders:`,
+          filteredOut.map((o) => o.supplierOrderNumber).join(", ")
+        );
+      } else {
+        console.warn("Failed to fetch DB matches for filtering");
+      }
+    } catch (err) {
+      console.warn("Error fetching DB matches, proceeding without filtering", err);
+    }
+
+    const results = items.map((item: ShopifyLineItem) => matchShopifyToSupplier(item, availableSupplier));
+
+    setMatchResults(results);
+    console.log(`Matched ${results.length} Shopify items`);
+  };
 
   const loadShopifyOrders = async (sinceDays = 30) => {
     setLoadingShopify(true);
@@ -67,76 +150,126 @@ export function useMatching({ enrichedOrders, orders, pricingByOrder, reloadDb }
         return;
       }
       const items = res.data?.lineItems || [];
-      setShopifyItems(items);
-
-      // Normalize Supplier orders for matching (use enriched if available)
-      const sourceOrders = enrichedOrders || orders;
-      console.log(`[MATCHING] Using ${enrichedOrders ? "ENRICHED" : "BASIC"} orders (${sourceOrders.length} total)`);
-
-      const sourceIds = sourceOrders.map((o: any) => o.orderId);
-      const uniqueSourceIds = new Set(sourceIds);
-      if (uniqueSourceIds.size !== sourceOrders.length) {
-        console.error(
-          `[MATCHING] ⚠️ WARNING: Source has duplicates! ${sourceOrders.length} orders but only ${uniqueSourceIds.size} unique IDs`
-        );
-      }
-
-      const normalizedSupplier: NormalizedSupplierOrder[] = sourceOrders.map((o: any) => {
-        const supplierCostFromB = (o as any).supplierCost ?? null;
-        const supplierCostFromPricing =
-          o.orderNumber && pricingByOrder[o.orderNumber]?.total != null ? pricingByOrder[o.orderNumber]!.total : null;
-        const finalTotalTTC = supplierCostFromB ?? supplierCostFromPricing;
-
-        return {
-          supplierOrderNumber: o.orderNumber || "",
-          chainId: o.chainId || "",
-          orderId: o.orderId || "",
-          purchaseDate: o.purchaseDate || "",
-          offerAmount: o.amount,
-          totalTTC: finalTotalTTC,
-          productTitle: o.displayName,
-          skuKey: o.skuKey,
-          sizeEU: o.size,
-          statusKey: o.statusKey,
-          statusTitle: o.statusTitle,
-          currencyCode: o.currencyCode,
-          awb: (o as any).awb || null,
-          trackingUrl: (o as any).trackingUrl || null,
-        };
-      });
-
-      console.log(`[MATCHING] Normalized ${normalizedSupplier.length} supplier orders for matching`);
-      const withSupplierCostB = normalizedSupplier.filter((o) => o.totalTTC !== null).length;
-      console.log(`[MATCHING] ${withSupplierCostB}/${normalizedSupplier.length} orders have totalTTC (Query B supplier cost)`);
-
-      // 🔒 Filter out already matched supplier orders (DB)
-      let availableSupplier = normalizedSupplier;
-      try {
-        const dbRes = await getJson<any>("/api/db/matches");
-        if (dbRes.ok) {
-          const usedSupplierNumbers = new Set(dbRes.data?.matches?.map((m: any) => m.supplierOrderNumber));
-          availableSupplier = normalizedSupplier.filter((order) => !usedSupplierNumbers.has(order.supplierOrderNumber));
-          const filteredOut = normalizedSupplier.filter((order) => usedSupplierNumbers.has(order.supplierOrderNumber));
-          console.log(
-            `🔒 Filtered out ${filteredOut.length} already-matched Supplier orders:`,
-            filteredOut.map((o) => o.supplierOrderNumber).join(", ")
-          );
-        } else {
-          console.warn("Failed to fetch DB matches for filtering");
-        }
-      } catch (err) {
-        console.warn("Error fetching DB matches, proceeding without filtering", err);
-      }
-
-      const results = items.map((item: ShopifyLineItem) => matchShopifyToSupplier(item, availableSupplier));
-
-      setMatchResults(results);
-      console.log(`Matched ${results.length} Shopify items`);
+      await runMatching(items);
     } catch (error) {
       console.error("Error loading Shopify orders:", error);
       alert("Failed to load Shopify orders");
     } finally {
       setLoadingShopify(false);
+    }
+  };
+
+  const loadExchangeOrderByName = async (orderName: string) => {
+    setLoadingShopify(true);
+    try {
+      const res = await postJson<any>("/api/shopify/order-exchange-by-name", { orderName });
+      if (!res.ok) {
+        alert(`Shopify error: ${res.data?.error || "Unknown error"}`);
+        return;
+      }
+      const items = res.data?.lineItems || [];
+      if (!items.length) {
+        alert(`No exchange line items found for ${orderName}`);
+        return;
+      }
+      await runMatching(items);
+    } catch (error: any) {
+      console.error("Error loading exchange order:", error);
+      alert("Failed to load exchange order");
+    } finally {
+      setLoadingShopify(false);
+    }
+  };
+
+  /**
+   * Refresh existing DB matches (tracking + states + ETA range) from the currently loaded
+   * supplier orders/enriched StockX data, without re-matching.
+   *
+   * This is critical because the matching flow filters out already-matched supplier orders,
+   * so pressing "match all" alone may not update old DB rows.
+   */
+  const refreshDbMatchesTracking = async () => {
+    try {
+      const dbRes = await getJson<any>("/api/db/matches");
+      if (!dbRes.ok) {
+        throw new Error(`Failed to load DB matches: ${dbRes.status}`);
+      }
+
+      const matches: any[] = dbRes.data?.matches || [];
+      const sourceOrders = (enrichedOrders || orders) as any[];
+
+      let updated = 0;
+      let skipped = 0;
+
+      for (const m of matches) {
+        // Only refresh StockX-backed matches
+        const supplierSource = (m.supplierSource || "STOCKX").toString();
+        if (supplierSource !== "STOCKX") {
+          skipped += 1;
+          continue;
+        }
+
+        const supplierOrderNumber = m.stockxOrderNumber;
+        if (!supplierOrderNumber) {
+          skipped += 1;
+          continue;
+        }
+
+        const raw = sourceOrders.find((o: any) => o.orderNumber === supplierOrderNumber);
+        if (!raw) {
+          skipped += 1;
+          continue;
+        }
+
+        const trackingUrl =
+          raw.trackingUrl || (raw as any).trackingUrl || (raw as any).buyOrder?.shipping?.shipment?.trackingUrl || null;
+        const awb = (raw as any).awb || null;
+        const checkoutType = (raw as any).stockxCheckoutType || (raw as any)?.buyOrder?.checkoutType || null;
+        const states = (raw as any).stockxStates || (raw as any)?.buyOrder?.states || null;
+        const status =
+          (raw as any).statusKey ??
+          (raw as any).statusKeyB ??
+          (raw as any).statusB ??
+          (raw as any)?.buyOrder?.currentStatus?.key ??
+          null;
+        const estimatedStart =
+          (raw as any).estimatedDeliveryB ||
+          (raw as any).estimatedDeliveryDate ||
+          (raw as any)?.buyOrder?.estimatedDeliveryDateRange?.estimatedDeliveryDate ||
+          null;
+        const estimatedEnd =
+          (raw as any).latestEstimatedDeliveryB ||
+          (raw as any).latestEstimatedDeliveryDate ||
+          (raw as any)?.buyOrder?.estimatedDeliveryDateRange?.latestEstimatedDeliveryDate ||
+          null;
+
+        await postJson("/api/db/save-match", {
+          shopifyLineItemId: m.shopifyLineItemId,
+          stockxOrderNumber: supplierOrderNumber,
+          stockxStatus: status,
+          stockxTrackingUrl: trackingUrl,
+          stockxAwb: awb,
+          stockxCheckoutType: checkoutType,
+          stockxStates: states,
+          stockxEstimatedDelivery: estimatedStart,
+          stockxLatestEstimatedDelivery: estimatedEnd,
+          updateTrackingOnly: true,
+        });
+
+        updated += 1;
+        // light pacing to avoid hammering
+        await new Promise((r) => setTimeout(r, 120));
+      }
+
+      alert(
+        `✅ Refresh existing DB matches done.\n\n` +
+          `Updated: ${updated}\n` +
+          `Skipped: ${skipped}\n\n` +
+          `This repopulates ETA start/end + tracking/states for old orders when data is available in the currently loaded StockX list.`
+      );
+    } catch (err: any) {
+      console.error("[DB_REFRESH] Failed:", err);
+      alert(`❌ Failed to refresh DB matches:\n\n${err?.message || "Unknown error"}`);
     }
   };
 
@@ -198,6 +331,8 @@ export function useMatching({ enrichedOrders, orders, pricingByOrder, reloadDb }
           const supplierCostFromPricing =
             o.orderNumber && pricingByOrder[o.orderNumber]?.total != null ? pricingByOrder[o.orderNumber]!.total : null;
           const finalTotalTTC = supplierCostFromB ?? supplierCostFromPricing;
+          const stockxCheckoutType = (o as any).stockxCheckoutType || (o as any).buyOrder?.checkoutType || null;
+          const stockxStates = (o as any).stockxStates || (o as any).buyOrder?.states || null;
 
           return {
             supplierOrderNumber: o.orderNumber || "",
@@ -214,6 +349,8 @@ export function useMatching({ enrichedOrders, orders, pricingByOrder, reloadDb }
             currencyCode: o.currencyCode,
             awb: (o as any).awb || null,
             trackingUrl: (o as any).trackingUrl || null,
+            stockxCheckoutType,
+            stockxStates,
           };
         });
 
@@ -267,6 +404,7 @@ export function useMatching({ enrichedOrders, orders, pricingByOrder, reloadDb }
       setManualMatchLoading(false);
     }
   };
+
 
   const createManualCostEntry = async (shopifyItem: ShopifyLineItem) => {
     const isLiquidation = /%/.test(shopifyItem.title);
@@ -339,6 +477,10 @@ export function useMatching({ enrichedOrders, orders, pricingByOrder, reloadDb }
         shopifySizeEU: shopifyItem.sizeEU,
         shopifyTotalPrice: revenue,
         shopifyCurrencyCode: shopifyItem.currencyCode,
+        shopifyCustomerEmail: shopifyItem.customerEmail,
+        shopifyCustomerFirstName: shopifyItem.customerFirstName,
+        shopifyCustomerLastName: shopifyItem.customerLastName,
+        shopifyLineItemImageUrl: shopifyItem.lineItemImageUrl,
         stockxOrderNumber: null,
         stockxProductName: shopifyItem.title,
         stockxSizeEU: shopifyItem.sizeEU,
@@ -393,6 +535,9 @@ export function useMatching({ enrichedOrders, orders, pricingByOrder, reloadDb }
     match: any,
     overrideData: {
       status: string;
+      returnReason: string;
+      returnFeePercent: string;
+      returnedStockValue: string;
       adjustment: string;
       note: string;
       manualCost: string;
@@ -401,14 +546,45 @@ export function useMatching({ enrichedOrders, orders, pricingByOrder, reloadDb }
     if (!overrideData) return;
     const adjustment = parseFloat(overrideData.adjustment || "0");
     const manualCost = overrideData.manualCost ? parseFloat(overrideData.manualCost) : null;
-    const effectiveRevenue = toNumber(match.shopifyTotalPrice) + adjustment;
-    const effectiveCost = manualCost !== null ? manualCost : match.supplierCost;
+    const revenue = toNumber(match.shopifyTotalPrice);
+    const returnReason = overrideData.returnReason || null;
+    const returnFeePercent =
+      overrideData.returnFeePercent
+        ? parseFloat(overrideData.returnFeePercent)
+        : returnReason === "STORE_CREDIT"
+        ? 25
+        : returnReason === "EXCHANGE"
+        ? 15
+        : returnReason === "DAMAGE"
+        ? 0
+        : null;
+    const returnFeeAmount =
+      returnReason && returnFeePercent != null && !isNaN(returnFeePercent)
+        ? Number(((revenue * returnFeePercent) / 100).toFixed(2))
+        : null;
+    const effectiveRevenue =
+      returnReason && returnFeeAmount != null ? returnFeeAmount : revenue + adjustment;
+    const effectiveCost = manualCost !== null ? manualCost : toNumber(match.supplierCost);
+    const resolvedReturnedStockValue =
+      overrideData.returnedStockValue?.trim()
+        ? parseFloat(overrideData.returnedStockValue)
+        : returnReason
+        ? Number(effectiveCost)
+        : null;
+
+    const marginPct =
+      effectiveRevenue > 0 ? ((effectiveRevenue - effectiveCost) / effectiveRevenue) * 100 : 0;
 
     const confirmMessage =
       `📝 Apply Manual Override?\n\n` +
       `Order: ${match.shopifyOrderName}\n` +
       `Product: ${match.shopifyProductTitle}\n\n` +
       `Status: ${overrideData.status || "ACTIVE (default)"}\n` +
+      (returnReason ? `Return Reason: ${returnReason}\n` : "") +
+      (returnFeeAmount != null ? `Return Fee: CHF ${returnFeeAmount.toFixed(2)}\n` : "") +
+      (resolvedReturnedStockValue != null
+        ? `Returned Stock Value: CHF ${resolvedReturnedStockValue.toFixed(2)}\n`
+        : "") +
       `Revenue Adjustment: CHF ${adjustment.toFixed(2)}\n` +
       (manualCost !== null ? `Manual Supplier Cost: CHF ${manualCost.toFixed(2)}\n` : "") +
       `Note: ${overrideData.note || "(none)"}\n\n` +
@@ -416,10 +592,7 @@ export function useMatching({ enrichedOrders, orders, pricingByOrder, reloadDb }
       `Original Revenue: CHF ${toNumber(match.shopifyTotalPrice).toFixed(2)}\n` +
       `Adjusted Revenue: CHF ${effectiveRevenue.toFixed(2)}\n` +
       `Supplier Cost: CHF ${effectiveCost.toFixed(2)}\n` +
-      `Adjusted Margin: CHF ${(effectiveRevenue - effectiveCost).toFixed(2)} (${(
-        ((effectiveRevenue - effectiveCost) / effectiveRevenue) *
-        100
-      ).toFixed(1)}%)\n\n` +
+      `Adjusted Margin: CHF ${(effectiveRevenue - effectiveCost).toFixed(2)} (${marginPct.toFixed(1)}%)\n\n` +
       `⚠️ This will ${manualCost !== null ? "mark as MANUAL COST (no Supplier) and " : ""}protect this match from auto-sync updates.`;
 
     if (!confirm(confirmMessage)) return;
@@ -432,6 +605,11 @@ export function useMatching({ enrichedOrders, orders, pricingByOrder, reloadDb }
         manualRevenueAdjustment: adjustment,
         manualNote: overrideData.note || null,
         manualSupplierCost: manualCost,
+        returnReason,
+        returnFeePercent,
+        returnedStockValueChf: overrideData.returnedStockValue
+          ? parseFloat(overrideData.returnedStockValue)
+          : null,
       });
 
       if (!res.ok) {
@@ -440,12 +618,15 @@ export function useMatching({ enrichedOrders, orders, pricingByOrder, reloadDb }
       }
 
       const updated = res.data?.updatedMatch;
+      const updatedSupplierCost = updated ? toNumber(updated.supplierCost) : null;
+      const updatedMarginAmount = updated ? toNumber(updated.marginAmount) : null;
+      const updatedMarginPercent = updated ? toNumber(updated.marginPercent) : null;
       alert(
         `✅ Manual override applied!\n\n` +
           `Order: ${match.shopifyOrderName}\n` +
           `Effective Revenue: CHF ${updated ? updated.shopifyTotalPrice + (updated.manualRevenueAdjustment || 0) : "N/A"}\n` +
-          `Supplier Cost: CHF ${updated ? updated.supplierCost.toFixed(2) : "N/A"}\n` +
-          `Margin: CHF ${updated ? updated.marginAmount.toFixed(2) : "N/A"} (${updated ? updated.marginPercent.toFixed(1) : "N/A"}%)\n\n` +
+          `Supplier Cost: CHF ${updatedSupplierCost != null ? updatedSupplierCost.toFixed(2) : "N/A"}\n` +
+          `Margin: CHF ${updatedMarginAmount != null ? updatedMarginAmount.toFixed(2) : "N/A"} (${updatedMarginPercent != null ? updatedMarginPercent.toFixed(1) : "N/A"}%)\n\n` +
           `✅ Dashboard will reflect this change immediately.\n` +
           `🔒 Auto-sync will NOT overwrite this.`
       );
@@ -453,7 +634,15 @@ export function useMatching({ enrichedOrders, orders, pricingByOrder, reloadDb }
       setManualOverrideExpanded((prev) => ({ ...prev, [matchId]: false }));
       setManualOverrideData((prev) => ({
         ...prev,
-        [matchId]: { status: "", adjustment: "", note: "", manualCost: "" },
+        [matchId]: {
+          status: "",
+          returnReason: "",
+          returnFeePercent: "",
+          returnedStockValue: "",
+          adjustment: "",
+          note: "",
+          manualCost: "",
+        },
       }));
 
       if (reloadDb) await reloadDb();
@@ -487,6 +676,7 @@ export function useMatching({ enrichedOrders, orders, pricingByOrder, reloadDb }
     setManualSupplierOrder,
     manualMatchLoading,
     loadShopifyOrders,
+    loadExchangeOrderByName,
     clearManualOverrides,
     handleManualMatch,
     createManualCostEntry,
@@ -496,6 +686,7 @@ export function useMatching({ enrichedOrders, orders, pricingByOrder, reloadDb }
 
       try {
         const supplierOrder = (enrichedOrders || orders).find((o: any) => o.orderNumber === supplierOrderNumber);
+        const rawStockxOrder = supplierOrder;
         let resolvedSupplier = supplierOrder;
 
         // Fallback for synthetic Essential Hoodie (not in loaded orders)
@@ -553,7 +744,7 @@ export function useMatching({ enrichedOrders, orders, pricingByOrder, reloadDb }
         const marginPercent = shopifyRevenue > 0 ? (marginAmount / shopifyRevenue) * 100 : 0;
 
         const confirmMessage =
-          `📦 Set Metafields on Shopify?\n\n` +
+          `💾 Save match to database?\n\n` +
           `Shopify Order: ${shopifyItem.orderName}\n` +
           `Product: ${shopifyItem.title}\n\n` +
           `💰 Financial Data:\n` +
@@ -563,36 +754,36 @@ export function useMatching({ enrichedOrders, orders, pricingByOrder, reloadDb }
           `📦 Supplier Data:\n` +
           `- Order Number: ${supplierOrderNumber}\n` +
           `- Status: ${resolvedSupplier.statusKey || "UNKNOWN"}\n` +
-          `- Estimated Delivery: ${resolvedSupplier.estimatedDeliveryDate || "N/A"}\n\n` +
-          `This will write 6 metafields to Shopify:\n` +
-          `supplier.order_number\nsupplier.status\nsupplier.estimated_delivery\nsupplier.total_cost\nsupplier.margin_amount\nsupplier.margin_percent`;
+          `- Estimated Delivery: ${resolvedSupplier.estimatedDeliveryDate || "N/A"}`;
 
         if (!confirm(confirmMessage)) return;
-
-        const res = await postJson<any>("/api/shopify/set-metafields", {
-          shopifyOrderId: shopifyItem.shopifyOrderId,
-          stockxOrderNumber: supplierOrderNumber,
-          estimatedDelivery: (resolvedSupplier as any).estimatedDeliveryDate || null,
-          stockxStatus: resolvedSupplier.statusKey || "UNKNOWN",
-          supplierCost: supplierCost.toFixed(2),
-          marginAmount: marginAmount.toFixed(2),
-          marginPercent: marginPercent.toFixed(2),
-          trackingNumber: stockxAwb,
-          trackingUrl: stockxTrackingUrl,
-        });
-        if (!res.ok) {
-          alert(`❌ Failed to set metafields:\n\n${res.data.error || "Unknown error"}`);
-          return;
-        }
-
-        setMetafieldsSet((prev) => ({
-          ...prev,
-          [lineItemId]: { timestamp: new Date().toISOString(), supplierOrderNumber },
-        }));
 
         try {
           const matchResult = matchResults.find((r) => r.shopifyItem.lineItemId === lineItemId);
           const bestMatch = matchResult?.bestMatch;
+          const fallbackCheckoutType =
+            (resolvedSupplier as any).stockxCheckoutType ||
+            (rawStockxOrder as any)?.stockxCheckoutType ||
+            null;
+          const fallbackStates =
+            (resolvedSupplier as any).stockxStates ||
+            (rawStockxOrder as any)?.stockxStates ||
+            null;
+          const fallbackStatus =
+            resolvedSupplier.statusKey ||
+            (rawStockxOrder as any)?.statusKeyB ||
+            (rawStockxOrder as any)?.statusB ||
+            "";
+          const estimatedStart =
+            (resolvedSupplier as any).estimatedDeliveryDate ||
+            (rawStockxOrder as any)?.estimatedDeliveryB ||
+            (rawStockxOrder as any)?.estimatedDeliveryDate ||
+            null;
+          const estimatedEnd =
+            (rawStockxOrder as any)?.latestEstimatedDeliveryB ||
+            (rawStockxOrder as any)?.latestEstimatedDeliveryDate ||
+            null;
+
           await postJson("/api/db/save-match", {
             shopifyOrderId: shopifyItem.shopifyOrderId,
             shopifyOrderName: shopifyItem.orderName,
@@ -603,6 +794,10 @@ export function useMatching({ enrichedOrders, orders, pricingByOrder, reloadDb }
             shopifySizeEU: shopifyItem.sizeEU,
             shopifyTotalPrice: shopifyRevenue,
             shopifyCurrencyCode: shopifyItem.currencyCode || "CHF",
+            shopifyCustomerEmail: shopifyItem.customerEmail,
+            shopifyCustomerFirstName: shopifyItem.customerFirstName,
+            shopifyCustomerLastName: shopifyItem.customerLastName,
+            shopifyLineItemImageUrl: shopifyItem.lineItemImageUrl,
             stockxChainId: (resolvedSupplier as any).chainId || null,
             stockxOrderId: (resolvedSupplier as any).orderId || null,
             stockxOrderNumber: supplierOrderNumber,
@@ -615,28 +810,31 @@ export function useMatching({ enrichedOrders, orders, pricingByOrder, reloadDb }
             matchType: manualOverrides[lineItemId] ? "manual" : "auto",
             matchReasons: bestMatch?.reasons || ["Manual match"],
             timeDiffHours: bestMatch?.timeDiffHours || 0,
-            stockxStatus: resolvedSupplier.statusKey || "",
+            stockxStatus: fallbackStatus,
             stockxAwb: stockxAwb,
             stockxTrackingUrl: stockxTrackingUrl,
-            stockxEstimatedDelivery: (resolvedSupplier as any).estimatedDeliveryDate || null,
+            stockxEstimatedDelivery: estimatedStart,
+            stockxLatestEstimatedDelivery: estimatedEnd,
+            stockxCheckoutType: fallbackCheckoutType,
+            stockxStates: fallbackStates,
             supplierCost: supplierCost,
             marginAmount: marginAmount,
             marginPercent: marginPercent,
             manualCostOverride: manualCostOverrides[lineItemId] || null,
             shopifyMetafieldsSynced: true,
+            syncTracking: true,
           });
         } catch (dbError) {
           console.error("[METAFIELDS] Database save error:", dbError);
         }
 
         alert(
-          `✅ Metafields set successfully on Shopify!\n\n` +
-            `${shopifyItem.orderName} → ${supplierOrderNumber}\n\n` +
-            `💾 Match saved to database.`
+          `✅ Match saved to database.\n\n` +
+            `${shopifyItem.orderName} → ${supplierOrderNumber}`
         );
       } catch (error: any) {
-        console.error("[METAFIELDS] Error:", error);
-        alert(`❌ Error setting metafields:\n\n${error.message}`);
+        console.error("[MATCH] Error:", error);
+        alert(`❌ Error saving match:\n\n${error.message}`);
       } finally {
         setMetafieldsLoading((prev) => ({ ...prev, [lineItemId]: false }));
       }
@@ -649,7 +847,7 @@ export function useMatching({ enrichedOrders, orders, pricingByOrder, reloadDb }
       }
       if (
         !confirm(
-          `🚀 Auto-Set Metafields for ${highMatches.length} HIGH confidence matches?\n\nThis will:\n- Set Shopify metafields for all HIGH matches\n- Save all matches to database\n- No manual approval for each one\n\nContinue?`
+          `🚀 Auto-save ${highMatches.length} HIGH confidence matches?\n\nThis will:\n- Save all matches to database\n- No manual approval for each one\n\nContinue?`
         )
       ) {
         return;
@@ -674,6 +872,17 @@ export function useMatching({ enrichedOrders, orders, pricingByOrder, reloadDb }
         const supplierCostFromPricing = pricingData?.total || null;
         const supplierCostOverride = manualCostOverrides[shopifyItem.lineItemId];
 
+        const hasTtc =
+          supplierCostFromMatch !== null && supplierCostFromMatch !== undefined;
+
+        if (!hasTtc && !supplierCostOverride && !supplierCostFromEnriched && !supplierCostFromPricing) {
+          console.warn(
+            `[AUTO-SET] Skipping ${shopifyItem.orderName} → ${supplierOrderNumber} (no TTC pricing)`
+          );
+          failCount++;
+          continue;
+        }
+
         let supplierCost =
           supplierCostFromMatch ??
           supplierCostFromEnriched ??
@@ -691,24 +900,30 @@ export function useMatching({ enrichedOrders, orders, pricingByOrder, reloadDb }
         const marginPercent = shopifyRevenue > 0 ? (marginAmount / shopifyRevenue) * 100 : 0;
         const trackingUrl = supplierOrder.trackingUrl || (rawStockxOrder as any)?.trackingUrl || null;
         const awb = supplierOrder.awb || (rawStockxOrder as any)?.awb || null;
+        const estimatedStart =
+          supplierOrder.estimatedDeliveryDate ||
+          (rawStockxOrder as any)?.estimatedDeliveryB ||
+          (rawStockxOrder as any)?.estimatedDeliveryDate ||
+          null;
+        const estimatedEnd =
+          (rawStockxOrder as any)?.latestEstimatedDeliveryB ||
+          (rawStockxOrder as any)?.latestEstimatedDeliveryDate ||
+          null;
 
         try {
-          const metaRes = await postJson<any>("/api/shopify/set-metafields", {
-            shopifyOrderId: shopifyItem.shopifyOrderId,
-            stockxOrderNumber: supplierOrderNumber,
-            estimatedDelivery: supplierOrder.estimatedDeliveryDate || null,
-            stockxStatus: supplierOrder.statusKey || "UNKNOWN",
-            supplierCost: supplierCost.toFixed(2),
-            marginAmount: marginAmount.toFixed(2),
-            marginPercent: marginPercent.toFixed(2),
-            trackingNumber: awb,
-            trackingUrl,
-          });
-          if (!metaRes.ok) {
-            console.error("[AUTO-SET] metafields failed", metaRes.data);
-            failCount++;
-            continue;
-          }
+          const fallbackCheckoutType =
+            (supplierOrder as any).stockxCheckoutType ||
+            (rawStockxOrder as any)?.stockxCheckoutType ||
+            null;
+          const fallbackStates =
+            (supplierOrder as any).stockxStates ||
+            (rawStockxOrder as any)?.stockxStates ||
+            null;
+          const fallbackStatus =
+            supplierOrder.statusKey ||
+            (rawStockxOrder as any)?.statusKeyB ||
+            (rawStockxOrder as any)?.statusB ||
+            "";
 
           await postJson("/api/db/save-match", {
             shopifyOrderId: shopifyItem.shopifyOrderId,
@@ -720,6 +935,10 @@ export function useMatching({ enrichedOrders, orders, pricingByOrder, reloadDb }
             shopifySizeEU: shopifyItem.sizeEU || null,
             shopifyTotalPrice: shopifyRevenue,
             shopifyCurrencyCode: shopifyItem.currencyCode || "CHF",
+            shopifyCustomerEmail: shopifyItem.customerEmail,
+            shopifyCustomerFirstName: shopifyItem.customerFirstName,
+            shopifyCustomerLastName: shopifyItem.customerLastName,
+            shopifyLineItemImageUrl: shopifyItem.lineItemImageUrl,
             stockxChainId: supplierOrder.chainId || null,
             stockxOrderId: supplierOrder.orderId || null,
             stockxOrderNumber: supplierOrderNumber,
@@ -732,15 +951,20 @@ export function useMatching({ enrichedOrders, orders, pricingByOrder, reloadDb }
             matchType: "auto",
             matchReasons: match.reasons,
             timeDiffHours: match.timeDiffHours,
-            stockxStatus: supplierOrder.statusKey || "",
+            stockxStatus: fallbackStatus,
             stockxAwb: awb,
             stockxTrackingUrl: trackingUrl,
-            stockxEstimatedDelivery: supplierOrder.estimatedDeliveryDate || null,
+            stockxEstimatedDelivery: estimatedStart,
+            stockxLatestEstimatedDelivery: estimatedEnd,
+            stockxCheckoutType: fallbackCheckoutType,
+            stockxStates: fallbackStates,
             supplierCost: supplierCost,
             marginAmount: marginAmount,
             marginPercent: marginPercent,
             manualCostOverride: supplierCostOverride || null,
             shopifyMetafieldsSynced: true,
+          updateTrackingOnly: true,
+            syncTracking: true,
           });
 
           successCount++;
@@ -758,6 +982,7 @@ export function useMatching({ enrichedOrders, orders, pricingByOrder, reloadDb }
           `All successful matches are now synced to Shopify and saved to database.`
       );
     },
+    refreshDbMatchesTracking,
     manualOverrideExpanded,
     setManualOverrideExpanded,
     manualOverrideData,

@@ -19,17 +19,43 @@ type HistoryItem = {
   orderName?: string | null;
 };
 
-const ENABLE_FULFILLMENT = false; // feature flag placeholder (do not enable)
+type AwbListItem = {
+  awb: string;
+  shopifyOrderName?: string | null;
+  shopifyOrderId?: string | null;
+  shopifyCreatedAt?: string | null;
+  trackingUrl?: string | null;
+};
+
+const ENABLE_FULFILLMENT = true; // feature flag placeholder (do not enable)
 
 export default function ScanPage() {
   const inputRef = useRef<HTMLInputElement | null>(null);
   const [code, setCode] = useState("");
   const [loading, setLoading] = useState(false);
+  const [fulfillLoading, setFulfillLoading] = useState(false);
+  const [fulfillResult, setFulfillResult] = useState<any | null>(null);
   const [result, setResult] = useState<ScanResult | null>(null);
   const [history, setHistory] = useState<HistoryItem[]>([]);
+  const [awbList, setAwbList] = useState<AwbListItem[]>([]);
+  const [awbFilter, setAwbFilter] = useState("");
+  const [forceFulfill, setForceFulfill] = useState(false);
 
   useEffect(() => {
     focusInput();
+  }, []);
+
+  useEffect(() => {
+    const loadAwbList = async () => {
+      try {
+        const res = await fetch("/api/scan-awb?list=1&limit=500");
+        const data = await res.json();
+        if (data?.items) setAwbList(data.items);
+      } catch {
+        // Non-blocking
+      }
+    };
+    loadAwbList();
   }, []);
 
   const focusInput = () => {
@@ -79,6 +105,30 @@ export default function ScanPage() {
     }
   };
 
+  const handleFulfill = async () => {
+    if (!result?.awb || !result?.match) return;
+    setFulfillLoading(true);
+    setFulfillResult(null);
+    try {
+      const res = await fetch("/api/fulfill-from-awb", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          awb: result.awb,
+          trackingUrl: result.match?.trackingUrl || null,
+          allowAlreadyFulfilled: forceFulfill,
+        }),
+      });
+      const data = await res.json();
+      setFulfillResult(data);
+    } catch (err: any) {
+      setFulfillResult({ ok: false, error: err?.message || "Network error" });
+    } finally {
+      setFulfillLoading(false);
+    }
+  };
+
+
   const statusColor = useMemo(() => {
     const s = result?.status;
     if (s === "FOUND") return "bg-green-50 border-green-200 text-green-800";
@@ -91,7 +141,9 @@ export default function ScanPage() {
     <div className="min-h-screen bg-gray-50 flex flex-col items-center p-6">
       <div className="w-full max-w-3xl">
         <h1 className="text-3xl font-bold text-gray-900 mb-2 text-center">📦 Scan AWB / Barcode</h1>
-        <p className="text-center text-gray-600 mb-6">Read-only lookup. No writes to Shopify or DB.</p>
+        <p className="text-center text-gray-600 mb-6">
+          Scan AWB to fulfill and print the Swiss Post label in one step.
+        </p>
 
         <div className="bg-white rounded-lg shadow p-6 flex flex-col items-center gap-4">
           <input
@@ -179,19 +231,66 @@ export default function ScanPage() {
                   <div>Variant/Size: {result.match.lineItem?.variantTitle || "—"}</div>
                   <div>SKU: {result.match.lineItem?.sku || "—"}</div>
                   <div>Qty: {result.match.lineItem?.quantity ?? "—"}</div>
+                  <div>Tracking URL: {result.match.trackingUrl || "—"}</div>
                 </div>
               </div>
             )}
 
             {ENABLE_FULFILLMENT && (
               <div className="mt-4">
+                <label className="flex items-center gap-2 text-sm text-gray-700 mb-2">
+                  <input
+                    type="checkbox"
+                    checked={forceFulfill}
+                    onChange={(e) => setForceFulfill(e.target.checked)}
+                    className="h-4 w-4 rounded border-gray-300 text-purple-600 focus:ring-purple-500"
+                  />
+                  Force fulfillment (ignore existing tracking)
+                </label>
                 <button
-                  disabled
-                  className="px-3 py-2 bg-gray-200 text-gray-500 rounded cursor-not-allowed"
-                  title="Coming soon"
+                  disabled={fulfillLoading}
+                  onClick={handleFulfill}
+                  className="px-3 py-2 bg-purple-600 text-white rounded hover:bg-purple-700 disabled:bg-gray-400"
                 >
-                  Fulfill matched line item (disabled)
+                  {fulfillLoading ? "Processing..." : "Fulfill + Print Label"}
                 </button>
+                {fulfillResult && (
+                  <div className="mt-3 text-sm">
+                    {fulfillResult.ok ? (
+                      <div className="text-green-700">
+                        ✅ {fulfillResult.status}
+                      </div>
+                    ) : (
+                      <div className="text-red-700">
+                        ❌ {fulfillResult.status || "ERROR"}{" "}
+                        {fulfillResult.error || fulfillResult.userErrors?.[0]?.message || ""}
+                      </div>
+                    )}
+                  </div>
+                )}
+                {fulfillResult?.labelFilePath && (
+                  <div className="mt-3 text-xs text-gray-700 whitespace-pre-wrap break-words">
+                    <div className={fulfillResult.ok ? "text-green-700" : "text-red-700"}>
+                      {fulfillResult.ok ? "✅ Label generated" : "❌ Label error"}
+                    </div>
+                    <div className="text-gray-500">
+                      Stored at <span className="font-mono">{fulfillResult.labelFilePath}</span>
+                    </div>
+                    {fulfillResult.printJobResult && (
+                      <div className="mt-1 text-gray-600">
+                        {fulfillResult.printJobResult.ok
+                          ? "Print job sent to the configured printer"
+                          : fulfillResult.printJobResult.skipped
+                          ? `Print skipped: ${fulfillResult.printJobResult.message || "disabled"}`
+                          : `Print error: ${
+                              fulfillResult.printJobResult.error ||
+                              fulfillResult.printJobResult.message ||
+                              "unknown"
+                            }`}
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             )}
           </div>
@@ -223,6 +322,47 @@ export default function ScanPage() {
             </div>
           </div>
         )}
+
+        {/* AWB List */}
+        <div className="mt-8 bg-white rounded-lg shadow p-4">
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="text-sm font-semibold text-gray-800">AWB List (from DB)</h3>
+            <span className="text-xs text-gray-500">{awbList.length} items</span>
+          </div>
+          <input
+            value={awbFilter}
+            onChange={(e) => setAwbFilter(e.target.value)}
+            placeholder="Filter by AWB or order #"
+            className="w-full mb-3 px-3 py-2 border rounded text-sm"
+          />
+          <div className="max-h-80 overflow-y-auto text-sm">
+            {awbList
+              .filter((a) => {
+                if (!awbFilter.trim()) return true;
+                const q = awbFilter.trim().toLowerCase();
+                return (
+                  a.awb.toLowerCase().includes(q) ||
+                  (a.shopifyOrderName || "").toLowerCase().includes(q)
+                );
+              })
+              .map((a) => (
+                <div key={`${a.awb}-${a.shopifyOrderId || ""}`} className="flex justify-between border-b py-2">
+                  <div className="text-gray-800">
+                    <span className="font-mono">{a.awb}</span>
+                    {a.shopifyOrderName ? ` — ${a.shopifyOrderName}` : ""}
+                  </div>
+                  <div className="text-gray-500">
+                    {a.shopifyCreatedAt
+                      ? new Date(a.shopifyCreatedAt).toLocaleDateString("de-CH")
+                      : "—"}
+                  </div>
+                </div>
+              ))}
+            {awbList.length === 0 && (
+              <div className="text-gray-500">No AWBs found in DB.</div>
+            )}
+          </div>
+        </div>
       </div>
     </div>
   );
